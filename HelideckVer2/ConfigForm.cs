@@ -9,14 +9,14 @@ namespace HelideckVer2
     public partial class ConfigForm : Form
     {
         private NumericUpDown numWind, numRoll, numPitch, numHeave;
-        private DataGridView dgvComConfig; // Grid để chỉnh COM
+        private DataGridView dgvComConfig;
 
-        // Giả lập danh sách Task (Trong thực tế nên lưu vào file JSON/DB)
+        // Ép cứng danh sách Task về 4800 hết
         public static List<DeviceTask> Tasks = new List<DeviceTask>
         {
-            new DeviceTask { TaskName = "GPS", PortName = "COM1", BaudRate = 9600 },
+            new DeviceTask { TaskName = "GPS", PortName = "COM1", BaudRate = 4800 },
             new DeviceTask { TaskName = "WIND", PortName = "COM2", BaudRate = 4800 },
-            new DeviceTask { TaskName = "R/P/H", PortName = "COM3", BaudRate = 9600 },
+            new DeviceTask { TaskName = "R/P/H", PortName = "COM3", BaudRate = 4800 },
             new DeviceTask { TaskName = "HEADING", PortName = "COM4", BaudRate = 4800 }
         };
 
@@ -24,17 +24,17 @@ namespace HelideckVer2
         {
             InitializeComponent();
             SetupUI();
-            // LOAD CONFIG JSON
+
             var cfg = HelideckVer2.Services.ConfigService.Load();
             HelideckVer2.Models.SystemConfig.Apply(cfg);
 
-            // merge baudrate vào Tasks theo PortName (fix cứng port)
+            // Bỏ qua giá trị lưu cũ, ép toàn bộ Tasks về 4800
             if (cfg.Tasks != null && cfg.Tasks.Count > 0)
             {
                 foreach (var saved in cfg.Tasks)
                 {
                     var t = Tasks.Find(x => x.PortName == saved.PortName);
-                    if (t != null) t.BaudRate = saved.BaudRate;
+                    if (t != null) t.BaudRate = 4800;
                 }
             }
 
@@ -43,28 +43,24 @@ namespace HelideckVer2
             dgvComConfig.CellBeginEdit += (s, e) =>
             {
                 var colName = dgvComConfig.Columns[e.ColumnIndex].Name;
-                if (colName == "Port" || colName == "Task")
+                // Khóa không cho sửa bất kỳ cột nào
+                if (colName == "Port" || colName == "Task" || colName == "Baud")
                     e.Cancel = true;
             };
         }
 
-
         private void SetupUI()
         {
             this.Text = "SYSTEM CONFIGURATION";
-            this.Size = new Size(500, 400); // To hơn xíu
+            this.Size = new Size(500, 400);
 
             TabControl tabConfig = new TabControl { Dock = DockStyle.Top, Height = 300 };
 
-            // --- TAB 1: ALARM LIMITS ---
-            TabPage tabAlarm = new TabPage("Alarm Limit");
-            tabAlarm.BackColor = Color.White;
+            TabPage tabAlarm = new TabPage("Alarm Limit") { BackColor = Color.White };
             SetupAlarmTab(tabAlarm);
             tabConfig.TabPages.Add(tabAlarm);
 
-            // --- TAB 2: COM CONFIG ---
-            TabPage tabCom = new TabPage("COM configuration");
-            tabCom.BackColor = Color.White;
+            TabPage tabCom = new TabPage("COM configuration") { BackColor = Color.White };
             SetupComTab(tabCom);
             tabConfig.TabPages.Add(tabCom);
 
@@ -86,42 +82,25 @@ namespace HelideckVer2
 
         private void SetupComTab(TabPage tab)
         {
-            dgvComConfig = new DataGridView();
-            dgvComConfig.Dock = DockStyle.Fill;
-            dgvComConfig.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            dgvComConfig.AllowUserToAddRows = false;
-            dgvComConfig.AllowUserToDeleteRows = false;
-            dgvComConfig.RowHeadersVisible = false;
-
-            // Task
-            var colTask = new DataGridViewTextBoxColumn
+            dgvComConfig = new DataGridView
             {
-                Name = "Task",
-                HeaderText = "Task Name",
-                ReadOnly = true
+                Dock = DockStyle.Fill,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                RowHeadersVisible = false,
+                BackgroundColor = Color.White
             };
 
-            // Port (FIX CỨNG - KHÔNG CHO SỬA)
-            var colPort = new DataGridViewTextBoxColumn
-            {
-                Name = "Port",
-                HeaderText = "COM Port",
-                ReadOnly = true
-            };
+            var colTask = new DataGridViewTextBoxColumn { Name = "Task", HeaderText = "Task Name", ReadOnly = true };
+            var colPort = new DataGridViewTextBoxColumn { Name = "Port", HeaderText = "COM Port", ReadOnly = true };
 
-            // Baudrate (CHO SỬA)
-            var colBaud = new DataGridViewComboBoxColumn
-            {
-                Name = "Baud",
-                HeaderText = "Baud Rate"
-            };
-            colBaud.Items.AddRange("4800", "9600", "19200", "38400", "115200");
+            // Đổi thành Text Box ReadOnly thay vì ComboBox
+            var colBaud = new DataGridViewTextBoxColumn { Name = "Baud", HeaderText = "Baud Rate", ReadOnly = true };
 
             dgvComConfig.Columns.AddRange(colTask, colPort, colBaud);
-
             tab.Controls.Add(dgvComConfig);
         }
-
 
         private NumericUpDown AddRow(TabPage p, string text, ref int top)
         {
@@ -135,43 +114,35 @@ namespace HelideckVer2
 
         private void LoadData()
         {
-            // Alarm
             numWind.Value = (decimal)SystemConfig.WindMax;
             numRoll.Value = (decimal)SystemConfig.RMax;
             numPitch.Value = (decimal)SystemConfig.PMax;
             numHeave.Value = (decimal)SystemConfig.HMax;
 
-            // COM Config
             foreach (var t in Tasks)
             {
-                dgvComConfig.Rows.Add(t.TaskName, t.PortName, t.BaudRate.ToString());
+                dgvComConfig.Rows.Add(t.TaskName, t.PortName, "4800");
             }
         }
 
         private void BtnSave_Click(object sender, EventArgs e)
         {
-            // Save Alarm
             SystemConfig.WindMax = (double)numWind.Value;
             SystemConfig.RMax = (double)numRoll.Value;
             SystemConfig.PMax = (double)numPitch.Value;
             SystemConfig.HMax = (double)numHeave.Value;
 
-            // Save COM: CHỈ CẬP NHẬT BAUDRATE
             foreach (DataGridViewRow row in dgvComConfig.Rows)
             {
                 string port = row.Cells["Port"].Value?.ToString();
-                string baudStr = row.Cells["Baud"].Value?.ToString();
-
-                if (string.IsNullOrWhiteSpace(port) || string.IsNullOrWhiteSpace(baudStr))
-                    continue;
+                if (string.IsNullOrWhiteSpace(port)) continue;
 
                 var task = Tasks.Find(t => t.PortName == port);
-                if (task != null)
-                    task.BaudRate = int.Parse(baudStr);
+                if (task != null) task.BaudRate = 4800; // Cố định 4800
             }
-            // SAVE CONFIG JSON (SystemConfig + Tasks)
+
             var saveCfg = HelideckVer2.Models.SystemConfig.Export();
-            saveCfg.Tasks = Tasks; // lưu PortName + BaudRate
+            saveCfg.Tasks = Tasks;
 
             HelideckVer2.Services.ConfigService.Save(saveCfg);
 
@@ -179,6 +150,5 @@ namespace HelideckVer2
             this.DialogResult = DialogResult.OK;
             this.Close();
         }
-
     }
 }
