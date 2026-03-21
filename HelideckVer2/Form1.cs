@@ -1024,7 +1024,7 @@ namespace HelideckVer2
         {
             foreach (var alarm in _alarmEngine.GetAll())
             {
-                if (alarm.Id == alarmId && alarm.IsActive) return true;/
+                if (alarm.Id == alarmId && alarm.IsActive) return true;
             }
             return false;
         }
