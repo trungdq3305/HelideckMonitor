@@ -28,13 +28,16 @@ namespace HelideckVer2
         private void SetupUI()
         {
             this.Text = "LIVE DATA LIST";
-            this.Size = new Size(900, 300);
+            // Giữ kích thước cửa sổ rộng để dữ liệu không bị che
+            this.Size = new Size(1100, 350);
             this.StartPosition = FormStartPosition.CenterParent;
 
             _dgvDataList = new DataGridView
             {
                 Dock = DockStyle.Fill,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                // 1. VÔ HIỆU HÓA tự động chỉnh chiều cao dòng (Cố định chiều cao dòng)
+                AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None,
                 BackgroundColor = Color.White,
                 EnableHeadersVisualStyles = false,
                 AllowUserToAddRows = false,
@@ -50,6 +53,9 @@ namespace HelideckVer2
             _dgvDataList.DefaultCellStyle.SelectionForeColor = Color.Black;
             _dgvDataList.DefaultCellStyle.Font = new Font("Arial", 11);
 
+            // 2. VÔ HIỆU HÓA tự động xuống hàng (Dữ liệu sẽ luôn nằm trên 1 dòng)
+            _dgvDataList.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
+
             _dgvDataList.Columns.Add("Task", "TASK NAME");
             _dgvDataList.Columns.Add("Port", "PORT");
             _dgvDataList.Columns.Add("Value", "VALUE");
@@ -58,6 +64,16 @@ namespace HelideckVer2
             _dgvDataList.Columns.Add("Status", "STATUS");
             _dgvDataList.Columns.Add("Limit", "LIMIT");
             _dgvDataList.Columns.Add("Alarm", "ALARM");
+
+            // Tỷ lệ cột mặc định (Để đảm bảo hiển thị đủ Value/Limit dài)
+            _dgvDataList.Columns["Task"].FillWeight = 80;
+            _dgvDataList.Columns["Port"].FillWeight = 60;
+            _dgvDataList.Columns["Value"].FillWeight = 200;
+            _dgvDataList.Columns["Unit"].FillWeight = 70;
+            _dgvDataList.Columns["Age"].FillWeight = 60;
+            _dgvDataList.Columns["Status"].FillWeight = 70;
+            _dgvDataList.Columns["Limit"].FillWeight = 160;
+            _dgvDataList.Columns["Alarm"].FillWeight = 120;
 
             // Khởi tạo 4 dòng trống
             for (int i = 0; i < 4; i++)
@@ -70,27 +86,38 @@ namespace HelideckVer2
 
         private void UpdateData(object sender, EventArgs e)
         {
+            if (_dgvDataList == null || _dgvDataList.IsDisposed) return;
+
             for (int i = 0; i < 4; i++)
             {
                 // Kéo dữ liệu tĩnh từ Form1 sang
                 _dgvDataList.Rows[i].Cells["Value"].Value = Form1.GridValues[i];
                 _dgvDataList.Rows[i].Cells["Limit"].Value = Form1.GridLimits[i];
-                _dgvDataList.Rows[i].Cells["Alarm"].Value = Form1.GridAlarms[i];
+
+                // --- RÚT GỌN CHUỖI ALARM ĐỂ TRÁNH GIẬT GIAO DIỆN ---
+                string rawAlarm = Form1.GridAlarms[i] ?? ""; // Tránh null
+                string shortAlarm = rawAlarm.Replace("ROLL", "R")
+                                            .Replace("PITCH", "P")
+                                            .Replace("HEAVE", "H");
+
+                // Gán chuỗi đã rút gọn vào DataGridView
+                _dgvDataList.Rows[i].Cells["Alarm"].Value = shortAlarm;
 
                 double age = Form1.GridAges[i];
                 bool isStale = Form1.GridStales[i];
 
                 _dgvDataList.Rows[i].Cells["Age"].Value = age > 900 ? "" : age.ToString("0.0");
 
-                if (isStale && age <= 900)
-                {
-                    _dgvDataList.Rows[i].Cells["Status"].Value = "STALE";
-                    _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.OrangeRed;
-                }
-                else if (age > 900)
+                // --- LOGIC MÀU SẮC STATUS GỐC (Dựa trên Age/Stale) ---
+                if (age > 900)
                 {
                     _dgvDataList.Rows[i].Cells["Status"].Value = "WAIT";
                     _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.Gray;
+                }
+                else if (isStale)
+                {
+                    _dgvDataList.Rows[i].Cells["Status"].Value = "STALE";
+                    _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.OrangeRed;
                 }
                 else
                 {
@@ -98,14 +125,25 @@ namespace HelideckVer2
                     _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.Green;
                 }
 
-                string alarmState = Form1.GridAlarms[i];
-                if (alarmState.Contains("Active"))
+                // --- LOGIC MÀU SẮC ALARM VÀ STATUS KHI CÓ LỖI ---
+                if (shortAlarm != "Normal")
+                {
+                    // Tô đỏ Alarm khi không Normal
                     _dgvDataList.Rows[i].Cells["Alarm"].Style.ForeColor = Color.Red;
-                else if (alarmState.Contains("Ack"))
-                    _dgvDataList.Rows[i].Cells["Alarm"].Style.ForeColor = Color.Orange;
+
+                    // Tô đỏ luôn Status cho đồng bộ cảnh báo (tuỳ chọn)
+                    _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.Red;
+                }
                 else
+                {
+                    // Trạng thái bình thường
                     _dgvDataList.Rows[i].Cells["Alarm"].Style.ForeColor = Color.Green;
+                }
             }
+
+            // 4. CHỐNG CHE DỮ LIỆU DÀI: Tự động mở rộng chiều rộng cột
+            // Chúng ta chỉ cần AutoResize cột Value và Limit (hoặc DisplayedCells là đủ)
+            _dgvDataList.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.DisplayedCells);
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
