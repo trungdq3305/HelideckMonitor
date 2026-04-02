@@ -78,7 +78,7 @@ namespace HelideckVer2
             InitializeComponent();
             ApplyLeftPanelStyles();
 
-            LoadImageFromFile(pictureBox1, "elevation_view.png");
+            LoadImageFromFile(pictureBox1, "picture1.png");
             // Không load plan_view nữa để nhường chỗ vẽ Radar nền trắng
             pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
             pictureBox2.SizeMode = PictureBoxSizeMode.Zoom;
@@ -596,8 +596,32 @@ namespace HelideckVer2
             Padding = new Padding(10, 0, 10, 0),
             Margin = new Padding(5, 2, 5, 2)
         };
-        
-        private void LoadImageFromFile(PictureBox picBox, string fileName) { try { string path = Path.Combine(Application.StartupPath, "Images", fileName); if (File.Exists(path)) using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read)) picBox.Image = Image.FromStream(stream); } catch { } }
+
+        private void LoadImageFromFile(PictureBox picBox, string fileName)
+        {
+            try
+            {
+                // 1. Lấy đường dẫn tới thư mục Images
+                string folderPath = Path.Combine(Application.StartupPath, "Images");
+
+                // 2. TỰ ĐỘNG TẠO THƯ MỤC NẾU CHƯA TỒN TẠI
+                if (!Directory.Exists(folderPath))
+                {
+                    Directory.CreateDirectory(folderPath);
+                }
+
+                // 3. Ghép tên file và load ảnh
+                string path = Path.Combine(folderPath, fileName);
+                if (File.Exists(path))
+                {
+                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
+                    {
+                        picBox.Image = Image.FromStream(stream);
+                    }
+                }
+            }
+            catch { /* Bỏ qua lỗi để không làm treo phần mềm nếu ảnh bị hỏng */ }
+        }
         protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); this.DoubleBuffered = true; EnableDoubleBuffer(tableLayoutPanel1); EnableDoubleBuffer(tableLayoutPanel2); EnableDoubleBuffer(tableLayoutPanel3); EnableDoubleBuffer(tableLayoutPanelTrend); }
         private void EnableDoubleBuffer(Control c) { if (c != null) typeof(Control).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.SetValue(c, true, null); }
         private void BtnSettings_Click(object s, EventArgs e)
