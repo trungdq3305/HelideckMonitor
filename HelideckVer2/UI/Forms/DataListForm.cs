@@ -88,33 +88,45 @@ namespace HelideckVer2
         {
             if (_dgvDataList == null || _dgvDataList.IsDisposed) return;
 
+            // 1. CHỤP LẤY BẢN SAO DỮ LIỆU TỪ DATAHUB (Cực kỳ an toàn, không lo đụng độ luồng)
+            var snapshot = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
+
             for (int i = 0; i < 4; i++)
             {
-                // Kéo dữ liệu tĩnh từ Form1 sang
-                _dgvDataList.Rows[i].Cells["Value"].Value = Form1.GridValues[i];
-                _dgvDataList.Rows[i].Cells["Limit"].Value = Form1.GridLimits[i];
+                string taskName = _tasks[i];
 
-                // --- RÚT GỌN CHUỖI ALARM ĐỂ TRÁNH GIẬT GIAO DIỆN ---
-                string rawAlarm = Form1.GridAlarms[i] ?? ""; // Tránh null
+                // Tìm dữ liệu của Task này trong snapshot
+                var rowData = snapshot.TaskRows.Find(r => r.TaskName == taskName);
+                if (rowData == null) continue;
+
+                // Gán Giá Trị
+                _dgvDataList.Rows[i].Cells["Value"].Value = rowData.Value;
+
+                // Gán Limit trực tiếp từ SystemConfig
+                if (taskName == "WIND")
+                    _dgvDataList.Rows[i].Cells["Limit"].Value = $"{HelideckVer2.Models.SystemConfig.WindMax:0.0}";
+                else if (taskName == "R/P/H")
+                    _dgvDataList.Rows[i].Cells["Limit"].Value = $"R:{HelideckVer2.Models.SystemConfig.RMax:0.0} P:{HelideckVer2.Models.SystemConfig.PMax:0.0} H:{HelideckVer2.Models.SystemConfig.HMax:0.0}";
+                else
+                    _dgvDataList.Rows[i].Cells["Limit"].Value = "N/A";
+
+                // Rút gọn Alarm
+                string rawAlarm = rowData.AlarmString ?? "Normal";
                 string shortAlarm = rawAlarm.Replace("ROLL", "R")
                                             .Replace("PITCH", "P")
                                             .Replace("HEAVE", "H");
-
-                // Gán chuỗi đã rút gọn vào DataGridView
                 _dgvDataList.Rows[i].Cells["Alarm"].Value = shortAlarm;
 
-                double age = Form1.GridAges[i];
-                bool isStale = Form1.GridStales[i];
+                // Xử lý Age
+                _dgvDataList.Rows[i].Cells["Age"].Value = rowData.Age > 900 ? "" : rowData.Age.ToString("0.0");
 
-                _dgvDataList.Rows[i].Cells["Age"].Value = age > 900 ? "" : age.ToString("0.0");
-
-                // --- LOGIC MÀU SẮC STATUS GỐC (Dựa trên Age/Stale) ---
-                if (age > 900)
+                // Logic Màu Status
+                if (rowData.Age > 900)
                 {
                     _dgvDataList.Rows[i].Cells["Status"].Value = "WAIT";
                     _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.Gray;
                 }
-                else if (isStale)
+                else if (rowData.IsStale)
                 {
                     _dgvDataList.Rows[i].Cells["Status"].Value = "STALE";
                     _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.OrangeRed;
@@ -125,27 +137,20 @@ namespace HelideckVer2
                     _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.Green;
                 }
 
-                // --- LOGIC MÀU SẮC ALARM VÀ STATUS KHI CÓ LỖI ---
+                // Logic Màu Alarm
                 if (shortAlarm != "Normal")
                 {
-                    // Tô đỏ Alarm khi không Normal
                     _dgvDataList.Rows[i].Cells["Alarm"].Style.ForeColor = Color.Red;
-
-                    // Tô đỏ luôn Status cho đồng bộ cảnh báo (tuỳ chọn)
                     _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.Red;
                 }
                 else
                 {
-                    // Trạng thái bình thường
                     _dgvDataList.Rows[i].Cells["Alarm"].Style.ForeColor = Color.Green;
                 }
             }
 
-            // 4. CHỐNG CHE DỮ LIỆU DÀI: Tự động mở rộng chiều rộng cột
-            // Chúng ta chỉ cần AutoResize cột Value và Limit (hoặc DisplayedCells là đủ)
             _dgvDataList.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.DisplayedCells);
         }
-
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _updateTimer.Stop();

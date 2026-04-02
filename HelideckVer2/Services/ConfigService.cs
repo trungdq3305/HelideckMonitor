@@ -10,7 +10,7 @@ namespace HelideckVer2.Services
 {
     public static class ConfigService
     {
-        private static readonly string BaseFolder = @"C:\HelideckLog\config";
+        private static readonly string BaseFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config");
         private static readonly string ConfigPath = Path.Combine(BaseFolder, "config.json");
 
         public static void Save(AppConfig cfg)

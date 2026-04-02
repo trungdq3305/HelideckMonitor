@@ -5,7 +5,7 @@ namespace HelideckVer2.Services
 {
     public class DataLogger
     {
-        private readonly string _baseFolder = @"C:\HelideckLog";
+        private readonly string _baseFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
         private string _currentFilePath = "";
         private string _lastFileName = "";
 
