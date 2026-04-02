@@ -16,6 +16,7 @@ namespace HelideckVer2
         #region Windows Form Designer generated code
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(MainForm));
             tableLayoutPanel1 = new TableLayoutPanel();
             tableLayoutPanel2 = new TableLayoutPanel();
             label1 = new Label();
@@ -33,6 +34,9 @@ namespace HelideckVer2
             lblPitch = new Label();
             lblHeave = new Label();
             lblHeaveCycle = new Label();
+            lblWindSpeed = new Label();
+            label9 = new Label();
+            lblWindRelated = new Label();
             tableLayoutPanel3 = new TableLayoutPanel();
             tableLayoutPanel4 = new TableLayoutPanel();
             pictureBox1 = new PictureBox();
@@ -40,9 +44,6 @@ namespace HelideckVer2
             tableLayoutPanelTrend = new TableLayoutPanel();
             panelTrendButtons = new FlowLayoutPanel();
             panelChartHost = new Panel();
-            lblWindSpeed = new Label();
-            label9 = new Label();
-            lblWindRelated = new Label();
             tableLayoutPanel1.SuspendLayout();
             tableLayoutPanel2.SuspendLayout();
             tableLayoutPanel3.SuspendLayout();
@@ -294,6 +295,44 @@ namespace HelideckVer2
             lblHeaveCycle.TextAlign = ContentAlignment.MiddleCenter;
             lblHeaveCycle.Click += lblHeaveCycle_Click;
             // 
+            // lblWindSpeed
+            // 
+            lblWindSpeed.Dock = DockStyle.Fill;
+            lblWindSpeed.Font = new Font("Courier New", 19.8000011F, FontStyle.Bold);
+            lblWindSpeed.ForeColor = Color.Green;
+            lblWindSpeed.Location = new Point(189, 519);
+            lblWindSpeed.Name = "lblWindSpeed";
+            lblWindSpeed.Size = new Size(179, 73);
+            lblWindSpeed.TabIndex = 15;
+            lblWindSpeed.Text = "0.00";
+            lblWindSpeed.TextAlign = ContentAlignment.MiddleCenter;
+            lblWindSpeed.Click += lblWindSpeed_Click;
+            // 
+            // label9
+            // 
+            label9.AutoSize = true;
+            label9.Dock = DockStyle.Fill;
+            label9.Font = new Font("Arial", 13.8F, FontStyle.Bold);
+            label9.Location = new Point(4, 593);
+            label9.Name = "label9";
+            label9.Size = new Size(178, 73);
+            label9.TabIndex = 16;
+            label9.Text = "WIND RELATED";
+            label9.TextAlign = ContentAlignment.MiddleLeft;
+            label9.Click += label9_Click;
+            // 
+            // lblWindRelated
+            // 
+            lblWindRelated.Dock = DockStyle.Fill;
+            lblWindRelated.Font = new Font("Courier New", 19.8000011F, FontStyle.Bold);
+            lblWindRelated.ForeColor = Color.Green;
+            lblWindRelated.Location = new Point(189, 593);
+            lblWindRelated.Name = "lblWindRelated";
+            lblWindRelated.Size = new Size(179, 73);
+            lblWindRelated.TabIndex = 17;
+            lblWindRelated.Text = "0°";
+            lblWindRelated.TextAlign = ContentAlignment.MiddleCenter;
+            // 
             // tableLayoutPanel3
             // 
             tableLayoutPanel3.ColumnCount = 1;
@@ -382,51 +421,14 @@ namespace HelideckVer2
             panelChartHost.Size = new Size(866, 393);
             panelChartHost.TabIndex = 1;
             // 
-            // lblWindSpeed
-            // 
-            lblWindSpeed.Dock = DockStyle.Fill;
-            lblWindSpeed.Font = new Font("Courier New", 19.8000011F, FontStyle.Bold);
-            lblWindSpeed.ForeColor = Color.Green;
-            lblWindSpeed.Location = new Point(189, 519);
-            lblWindSpeed.Name = "lblWindSpeed";
-            lblWindSpeed.Size = new Size(179, 73);
-            lblWindSpeed.TabIndex = 15;
-            lblWindSpeed.Text = "0.00";
-            lblWindSpeed.TextAlign = ContentAlignment.MiddleCenter;
-            lblWindSpeed.Click += lblWindSpeed_Click;
-            // 
-            // label9
-            // 
-            label9.AutoSize = true;
-            label9.Dock = DockStyle.Fill;
-            label9.Font = new Font("Arial", 13.8F, FontStyle.Bold);
-            label9.Location = new Point(4, 593);
-            label9.Name = "label9";
-            label9.Size = new Size(178, 73);
-            label9.TabIndex = 16;
-            label9.Text = "WIND RELATED";
-            label9.TextAlign = ContentAlignment.MiddleLeft;
-            label9.Click += label9_Click;
-            // 
-            // lblWindRelated
-            // 
-            lblWindRelated.Dock = DockStyle.Fill;
-            lblWindRelated.Font = new Font("Courier New", 19.8000011F, FontStyle.Bold);
-            lblWindRelated.ForeColor = Color.Green;
-            lblWindRelated.Location = new Point(189, 593);
-            lblWindRelated.Name = "lblWindRelated";
-            lblWindRelated.Size = new Size(179, 73);
-            lblWindRelated.TabIndex = 17;
-            lblWindRelated.Text = "0°";
-            lblWindRelated.TextAlign = ContentAlignment.MiddleCenter;
-            // 
-            // Form1
+            // MainForm
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1262, 753);
             Controls.Add(tableLayoutPanel1);
-            Name = "Form1";
+            Icon = (Icon)resources.GetObject("$this.Icon");
+            Name = "MainForm";
             Text = "HELIDECK MONITORING SYSTEM";
             WindowState = FormWindowState.Maximized;
             tableLayoutPanel1.ResumeLayout(false);

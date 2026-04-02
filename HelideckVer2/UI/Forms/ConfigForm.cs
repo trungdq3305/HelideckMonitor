@@ -11,13 +11,12 @@ namespace HelideckVer2
         private NumericUpDown numWind, numRoll, numPitch, numHeave;
         private DataGridView dgvComConfig;
 
-        // Ép cứng danh sách Task về 4800 hết
         public static List<DeviceTask> Tasks = new List<DeviceTask>
         {
-            new DeviceTask { TaskName = "GPS", PortName = "COM1", BaudRate = 4800 },
-            new DeviceTask { TaskName = "WIND", PortName = "COM2", BaudRate = 4800 },
-            new DeviceTask { TaskName = "R/P/H", PortName = "COM3", BaudRate = 4800 },
-            new DeviceTask { TaskName = "HEADING", PortName = "COM4", BaudRate = 4800 }
+            new DeviceTask { TaskName = "GPS", PortName = "COM1" },
+            new DeviceTask { TaskName = "WIND", PortName = "COM2" },
+            new DeviceTask { TaskName = "R/P/H", PortName = "COM3" },
+            new DeviceTask { TaskName = "HEADING", PortName = "COM4" }
         };
 
         public ConfigForm()
@@ -33,8 +32,8 @@ namespace HelideckVer2
             {
                 foreach (var saved in cfg.Tasks)
                 {
-                    var t = Tasks.Find(x => x.PortName == saved.PortName);
-                    if (t != null) t.BaudRate = 4800;
+                    var t = Tasks.Find(x => x.TaskName == saved.TaskName); // Tìm theo TaskName an toàn hơn
+                    if (t != null) t.PortName = saved.PortName;
                 }
             }
 
@@ -93,13 +92,18 @@ namespace HelideckVer2
             };
 
             var colTask = new DataGridViewTextBoxColumn { Name = "Task", HeaderText = "Task Name", ReadOnly = true };
-            var colPort = new DataGridViewTextBoxColumn { Name = "Port", HeaderText = "COM Port", ReadOnly = true };
+            var colPort = new DataGridViewTextBoxColumn { Name = "Port", HeaderText = "COM Port" }; // Cho phép gõ để sửa
 
-            // Đổi thành Text Box ReadOnly thay vì ComboBox
-            var colBaud = new DataGridViewTextBoxColumn { Name = "Baud", HeaderText = "Baud Rate", ReadOnly = true };
-
-            dgvComConfig.Columns.AddRange(colTask, colPort, colBaud);
+            // BỎ HẲN CỘT BAUD RATE VÌ ĐÃ FIX CỨNG 4800 TRONG COMENGINE
+            dgvComConfig.Columns.AddRange(colTask, colPort);
             tab.Controls.Add(dgvComConfig);
+
+            // Khóa cột Task, chỉ cho người dùng sửa cột Port
+            dgvComConfig.CellBeginEdit += (s, e) =>
+            {
+                if (dgvComConfig.Columns[e.ColumnIndex].Name == "Task")
+                    e.Cancel = true;
+            };
         }
 
         private NumericUpDown AddRow(TabPage p, string text, ref int top)
@@ -121,7 +125,7 @@ namespace HelideckVer2
 
             foreach (var t in Tasks)
             {
-                dgvComConfig.Rows.Add(t.TaskName, t.PortName, "4800");
+                dgvComConfig.Rows.Add(t.TaskName, t.PortName);
             }
         }
 
@@ -138,7 +142,7 @@ namespace HelideckVer2
                 if (string.IsNullOrWhiteSpace(port)) continue;
 
                 var task = Tasks.Find(t => t.PortName == port);
-                if (task != null) task.BaudRate = 4800; // Cố định 4800
+                if (task != null) task.PortName = port; // Cố định 4800
             }
 
             var saveCfg = HelideckVer2.Models.SystemConfig.Export();

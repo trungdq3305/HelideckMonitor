@@ -99,8 +99,13 @@ namespace HelideckVer2
             {
                 foreach (var saved in cfg.Tasks)
                 {
-                    var t = ConfigForm.Tasks.Find(x => x.PortName == saved.PortName);
-                    if (t != null) t.BaudRate = saved.BaudRate;
+                    // Nên tìm theo TaskName để chính xác hơn tìm theo PortName
+                    var t = ConfigForm.Tasks.Find(x => x.TaskName == saved.TaskName);
+                    if (t != null)
+                    {
+                        t.PortName = saved.PortName;
+                        // XÓA DÒNG: t.BaudRate = saved.BaudRate; (Dòng gây lỗi)
+                    }
                 }
             }
 
@@ -576,11 +581,22 @@ namespace HelideckVer2
             
             _rollTag.Update(Math.Abs(r)); _pitchTag.Update(Math.Abs(p)); _heaveTag.Update(Math.Abs(h)); _alarmEngine.Evaluate();
         }
-       
+
         // ==========================================
         // 7. CÁC HÀM TIỆN ÍCH, VẼ GIAO DIỆN, CHART
         // ==========================================
-        private void InitializeTasks() { _taskList = new List<DeviceTask>(); foreach (var t in ConfigForm.Tasks) _taskList.Add(new DeviceTask { TaskName = t.TaskName, PortName = t.PortName, BaudRate = t.BaudRate, Value1 = 0, HighLimit = t.HighLimit }); }
+        private void InitializeTasks()
+        {
+            _taskList = new List<DeviceTask>();
+            foreach (var t in ConfigForm.Tasks)
+            {
+                _taskList.Add(new DeviceTask
+                {
+                    TaskName = t.TaskName,
+                    PortName = t.PortName
+                });
+            }
+        }
         private void UpdateBadge(Label lbl, string name, bool isStale, double age) { if (age > 900) { lbl.Text = $"{name}: WAIT"; lbl.BackColor = Color.DimGray; } else if (isStale) { lbl.Text = $"{name}: LOST"; lbl.BackColor = Color.Red; } else { lbl.Text = $"{name}: OK"; lbl.BackColor = Color.ForestGreen; } }
         private void UpdateLabelStatus(Label lbl, bool isAlive) { if (lbl != null) { if (isAlive && lbl.ForeColor == Color.Gray) lbl.ForeColor = Color.Black; else if (!isAlive) lbl.ForeColor = Color.Gray; } }
         private void EnsureAlarmBadge() { if (lblAlarmStatus == null) { lblAlarmStatus = new Label { AutoSize = false, Width = 240, Height = 30, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 12, FontStyle.Bold), BackColor = Color.Black, ForeColor = Color.Lime, Text = "NORMAL", Margin = new Padding(20, 7, 5, 5) }; _topMenu.Controls.Add(lblAlarmStatus); } }

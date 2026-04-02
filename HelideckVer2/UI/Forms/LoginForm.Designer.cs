@@ -29,6 +29,7 @@ namespace HelideckVer2
         /// </summary>
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(LoginForm));
             label1 = new Label();
             SuspendLayout();
             // 
@@ -48,6 +49,7 @@ namespace HelideckVer2
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
             Controls.Add(label1);
+            Icon = (Icon)resources.GetObject("$this.Icon");
             Name = "LoginForm";
             Text = "LoginForm";
             ResumeLayout(false);
