@@ -104,7 +104,7 @@ namespace HelideckVer2
                     if (t != null)
                     {
                         t.PortName = saved.PortName;
-                        // XÓA DÒNG: t.BaudRate = saved.BaudRate; (Dòng gây lỗi)
+                        //t.BaudRate = saved.BaudRate;
                     }
                 }
             }
@@ -593,7 +593,8 @@ namespace HelideckVer2
                 _taskList.Add(new DeviceTask
                 {
                     TaskName = t.TaskName,
-                    PortName = t.PortName
+                    PortName = t.PortName,
+                    BaudRate = t.BaudRate
                 });
             }
         }

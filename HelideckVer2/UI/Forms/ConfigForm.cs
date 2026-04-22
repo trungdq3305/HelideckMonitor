@@ -13,10 +13,12 @@ namespace HelideckVer2
 
         public static List<DeviceTask> Tasks = new List<DeviceTask>
         {
-            new DeviceTask { TaskName = "GPS", PortName = "COM1" },
-            new DeviceTask { TaskName = "WIND", PortName = "COM2" },
-            new DeviceTask { TaskName = "R/P/H", PortName = "COM3" },
-            new DeviceTask { TaskName = "HEADING", PortName = "COM4" }
+    
+            new DeviceTask { TaskName = "GPS", PortName = "COM1", BaudRate = 9600 },
+            new DeviceTask { TaskName = "WIND", PortName = "COM2", BaudRate = 4800 },
+            new DeviceTask { TaskName = "R/P/H", PortName = "COM3", BaudRate = 9600 },
+            new DeviceTask { TaskName = "HEADING", PortName = "COM4", BaudRate = 4800 },
+            new DeviceTask { TaskName = "AUX", PortName = "COM5", BaudRate = 4800 }
         };
 
         public ConfigForm()
@@ -35,7 +37,7 @@ namespace HelideckVer2
                     if (t != null)
                     {
                         t.PortName = saved.PortName;
-                        t.BaudRate = saved.BaudRate; 
+                        //t.BaudRate = saved.BaudRate; 
                     }
                 }
             }
@@ -160,12 +162,6 @@ namespace HelideckVer2
                 {
 
                     task.PortName = row.Cells["Port"].Value?.ToString();
-
-
-                    if (row.Cells["Baud"].Value != null)
-                    {
-                        task.BaudRate = Convert.ToInt32(row.Cells["Baud"].Value);
-                    }
                 }
             }
 

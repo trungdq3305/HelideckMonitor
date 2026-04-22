@@ -32,7 +32,14 @@ namespace HelideckVer2.Services
                 SerialPort sp = new SerialPort();
                 sp.PortName = task.PortName;
 
-                sp.BaudRate = (task.BaudRate > 0) ? task.BaudRate : 4800;
+                if (task.TaskName == "GPS" || task.TaskName == "R/P/H")
+                {
+                    sp.BaudRate = 9600;
+                }
+                else
+                {
+                    sp.BaudRate = 4800;
+                }
 
                 sp.Parity = Parity.None;
                 sp.DataBits = 8;
@@ -61,7 +68,7 @@ namespace HelideckVer2.Services
                 };
 
                 sp.Open();
-
+                MessageBox.Show($"Đã mở cổng {sp.PortName} (Task: {task.TaskName}) với tốc độ BaudRate thực tế là: {sp.BaudRate}", "Kiểm tra Baudrate");
                 lock (_activePorts)
                 {
                     _activePorts.Add(sp);

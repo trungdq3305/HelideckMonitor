@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace HelideckVer2.Models
@@ -10,6 +11,8 @@ namespace HelideckVer2.Models
     {
         public string TaskName { get; set; }
         public string PortName { get; set; }
+
+        [JsonIgnore]
         public int BaudRate { get; set; }
     }
 }
