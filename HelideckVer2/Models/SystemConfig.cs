@@ -8,7 +8,7 @@ namespace HelideckVer2.Models
 {
     public static class SystemConfig
     {
-        public static bool IsSimulationMode { get; set; } = false;
+        public static bool IsSimulationMode { get; set; } = true;
         public static string AdminPassword { get; set; } = "123456";
         public static string ShipName { get; set; } = "FSO 01 - HELIDECK";
 
