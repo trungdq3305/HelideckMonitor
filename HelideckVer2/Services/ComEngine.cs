@@ -32,8 +32,8 @@ namespace HelideckVer2.Services
                 SerialPort sp = new SerialPort();
                 sp.PortName = task.PortName;
 
-                // Cố định BaudRate = 4800, bỏ qua cấu hình ngoài
-                sp.BaudRate = 4800;
+                sp.BaudRate = (task.BaudRate > 0) ? task.BaudRate : 4800;
+
                 sp.Parity = Parity.None;
                 sp.DataBits = 8;
                 sp.StopBits = StopBits.One;

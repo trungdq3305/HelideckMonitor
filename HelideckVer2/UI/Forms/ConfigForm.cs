@@ -27,13 +27,16 @@ namespace HelideckVer2
             var cfg = HelideckVer2.Services.ConfigService.Load();
             HelideckVer2.Models.SystemConfig.Apply(cfg);
 
-            // Bỏ qua giá trị lưu cũ, ép toàn bộ Tasks về 4800
             if (cfg.Tasks != null && cfg.Tasks.Count > 0)
             {
                 foreach (var saved in cfg.Tasks)
                 {
-                    var t = Tasks.Find(x => x.TaskName == saved.TaskName); // Tìm theo TaskName an toàn hơn
-                    if (t != null) t.PortName = saved.PortName;
+                    var t = Tasks.Find(x => x.TaskName == saved.TaskName);
+                    if (t != null)
+                    {
+                        t.PortName = saved.PortName;
+                        t.BaudRate = saved.BaudRate; 
+                    }
                 }
             }
 
@@ -92,18 +95,27 @@ namespace HelideckVer2
             };
 
             var colTask = new DataGridViewTextBoxColumn { Name = "Task", HeaderText = "Task Name", ReadOnly = true };
-            var colPort = new DataGridViewTextBoxColumn { Name = "Port", HeaderText = "COM Port" }; // Cho phép gõ để sửa
+            var colPort = new DataGridViewTextBoxColumn { Name = "Port", HeaderText = "COM Port" };
 
-            // BỎ HẲN CỘT BAUD RATE VÌ ĐÃ FIX CỨNG 4800 TRONG COMENGINE
-            dgvComConfig.Columns.AddRange(colTask, colPort);
-            tab.Controls.Add(dgvComConfig);
-
-            // Khóa cột Task, chỉ cho người dùng sửa cột Port
-            dgvComConfig.CellBeginEdit += (s, e) =>
+            // THIẾT LẬP: Cột Baud Rate hiện ra nhưng KHÔNG cho sửa (ReadOnly = true)
+            var colBaud = new DataGridViewTextBoxColumn
             {
-                if (dgvComConfig.Columns[e.ColumnIndex].Name == "Task")
-                    e.Cancel = true;
+                Name = "Baud",
+                HeaderText = "Baud Rate",
+                ReadOnly = true // KHÓA TẠI ĐÂY
             };
+
+            dgvComConfig.Columns.AddRange(colTask, colPort, colBaud);
+
+            // Thêm một lớp bảo mật nữa bằng cách chặn sự kiện Edit trực tiếp trên cột Baud
+            dgvComConfig.CellBeginEdit += (s, e) => {
+                if (dgvComConfig.Columns[e.ColumnIndex].Name == "Baud")
+                {
+                    e.Cancel = true;
+                }
+            };
+
+            tab.Controls.Add(dgvComConfig);
         }
 
         private NumericUpDown AddRow(TabPage p, string text, ref int top)
@@ -123,9 +135,11 @@ namespace HelideckVer2
             numPitch.Value = (decimal)SystemConfig.PMax;
             numHeave.Value = (decimal)SystemConfig.HMax;
 
+            dgvComConfig.Rows.Clear();
             foreach (var t in Tasks)
             {
-                dgvComConfig.Rows.Add(t.TaskName, t.PortName);
+                // Hiển thị BaudRate từ file cấu hình lên Grid
+                dgvComConfig.Rows.Add(t.TaskName, t.PortName, t.BaudRate);
             }
         }
 
@@ -138,11 +152,21 @@ namespace HelideckVer2
 
             foreach (DataGridViewRow row in dgvComConfig.Rows)
             {
-                string port = row.Cells["Port"].Value?.ToString();
-                if (string.IsNullOrWhiteSpace(port)) continue;
 
-                var task = Tasks.Find(t => t.PortName == port);
-                if (task != null) task.PortName = port; // Cố định 4800
+                string taskName = row.Cells["Task"].Value?.ToString();
+                var task = Tasks.Find(t => t.TaskName == taskName);
+
+                if (task != null)
+                {
+
+                    task.PortName = row.Cells["Port"].Value?.ToString();
+
+
+                    if (row.Cells["Baud"].Value != null)
+                    {
+                        task.BaudRate = Convert.ToInt32(row.Cells["Baud"].Value);
+                    }
+                }
             }
 
             var saveCfg = HelideckVer2.Models.SystemConfig.Export();
