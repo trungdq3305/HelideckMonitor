@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Windows.Forms.DataVisualization.Charting;
+using HelideckVer2.UI.Theme;
 
 namespace HelideckVer2.UI.Controls
 {
@@ -21,7 +22,6 @@ namespace HelideckVer2.UI.Controls
         private readonly List<TrendPoint> _motionBuffer = new List<TrendPoint>();
         private readonly List<TrendPoint> _windBuffer = new List<TrendPoint>();
 
-        // --- CÁC BIẾN CHO TÍNH NĂNG HOVER CHUỘT ---
         private string _hoverText = "";
         private Point _hoverPoint = Point.Empty;
 
@@ -33,19 +33,29 @@ namespace HelideckVer2.UI.Controls
 
         private void InitializeComponent()
         {
-            _chart = new Chart { Dock = DockStyle.Fill, BackColor = Color.White };
+            _chart = new Chart
+            {
+                Dock      = DockStyle.Fill,
+                BackColor = Palette.ChartBg
+            };
             this.Controls.Add(_chart);
         }
 
         private void SetupChart()
         {
-            _chart.Legends.Add(new Legend { Docking = Docking.Top, Alignment = StringAlignment.Center, Font = new Font("Segoe UI", 10, FontStyle.Bold) });
+            var legend = new Legend
+            {
+                Docking   = Docking.Top,
+                Alignment = StringAlignment.Center,
+                Font      = new Font("Segoe UI", 10, FontStyle.Bold),
+                BackColor = Palette.ChartBg,
+                ForeColor = Palette.TextLabel
+            };
+            _chart.Legends.Add(legend);
 
-            _chart.MouseMove += Chart_MouseMove;
+            _chart.MouseMove  += Chart_MouseMove;
             _chart.MouseLeave += Chart_MouseLeave;
-            _chart.PostPaint += Chart_PostPaint;
-
-            // BẮT SỰ KIỆN KHI NGƯỜI DÙNG KÉO THANH SCROLL
+            _chart.PostPaint  += Chart_PostPaint;
             _chart.AxisViewChanged += Chart_AxisViewChanged;
 
             SetMode(TrendMode.Motion, false);
@@ -63,16 +73,16 @@ namespace HelideckVer2.UI.Controls
                 if (mode == TrendMode.Motion)
                 {
                     AddArea("AreaRoll"); AddArea("AreaPitch"); AddArea("AreaHeave");
-                    AddSeries("Roll", "AreaRoll", Color.Blue);
-                    AddSeries("Pitch", "AreaPitch", Color.Orange);
-                    AddSeries("Heave", "AreaHeave", Color.Red);
+                    AddSeries("Roll",  "AreaRoll",  Palette.SeriesRoll);
+                    AddSeries("Pitch", "AreaPitch", Palette.SeriesPitch);
+                    AddSeries("Heave", "AreaHeave", Palette.SeriesHeave);
                     AlignAreas("AreaPitch", "AreaRoll"); AlignAreas("AreaHeave", "AreaRoll");
                 }
                 else
                 {
                     AddArea("AreaWindSpeed"); AddArea("AreaWindDir");
-                    AddSeries("WindSpeed", "AreaWindSpeed", Color.Blue);
-                    AddSeries("WindDir", "AreaWindDir", Color.Orange);
+                    AddSeries("WindSpeed", "AreaWindSpeed", Palette.SeriesWSpeed);
+                    AddSeries("WindDir",   "AreaWindDir",   Palette.SeriesWDir);
                     AlignAreas("AreaWindDir", "AreaWindSpeed");
                 }
             }
@@ -81,34 +91,52 @@ namespace HelideckVer2.UI.Controls
                 AddArea("MainArea");
                 if (mode == TrendMode.Motion)
                 {
-                    AddSeries("Roll", "MainArea", Color.Blue);
-                    AddSeries("Pitch", "MainArea", Color.Orange);
-                    AddSeries("Heave", "MainArea", Color.Red);
+                    AddSeries("Roll",  "MainArea", Palette.SeriesRoll);
+                    AddSeries("Pitch", "MainArea", Palette.SeriesPitch);
+                    AddSeries("Heave", "MainArea", Palette.SeriesHeave);
                 }
                 else
                 {
-                    AddSeries("WindSpeed", "MainArea", Color.Blue);
-                    AddSeries("WindDir", "MainArea", Color.Orange);
+                    AddSeries("WindSpeed", "MainArea", Palette.SeriesWSpeed);
+                    AddSeries("WindDir",   "MainArea", Palette.SeriesWDir);
                 }
             }
         }
 
         private void AddArea(string name)
         {
-            var area = new ChartArea(name) { BackColor = Color.White };
-            area.AxisX.LabelStyle.Format = "HH:mm:ss";
-            area.AxisX.MajorGrid.LineColor = Color.LightGray;
+            var area = new ChartArea(name)
+            {
+                BackColor        = Palette.ChartBg,
+                BorderColor      = Palette.BorderPanel,
+                BorderDashStyle  = ChartDashStyle.Solid,
+                BorderWidth      = 1
+            };
+
+            area.AxisX.LabelStyle.Format   = "HH:mm:ss";
+            area.AxisX.LabelStyle.ForeColor = Palette.TextLabel;
+            area.AxisX.LineColor            = Palette.BorderPanel;
+            area.AxisX.MajorTickMark.LineColor = Palette.BorderCard;
+            area.AxisX.MajorGrid.LineColor  = Palette.GridLine;
             area.AxisX.MajorGrid.LineDashStyle = ChartDashStyle.Dash;
-            area.AxisY.MajorGrid.LineColor = Color.LightGray;
+
+            area.AxisY.LabelStyle.ForeColor = Palette.TextLabel;
+            area.AxisY.LineColor            = Palette.BorderPanel;
+            area.AxisY.MajorTickMark.LineColor = Palette.BorderCard;
+            area.AxisY.MajorGrid.LineColor  = Palette.GridLine;
+            area.AxisY.MajorGrid.LineDashStyle = ChartDashStyle.Dash;
 
             area.CursorX.IsUserEnabled = true;
-            area.CursorX.Interval = 0;
+            area.CursorX.Interval      = 0;
+            area.CursorX.LineColor     = Palette.TextLabel;
             area.CursorY.IsUserEnabled = true;
-            area.CursorY.Interval = 0;
+            area.CursorY.Interval      = 0;
 
-            // BẬT THANH SCROLL VÀ ZOOM TẠI ĐÂY
             area.AxisX.ScrollBar.Enabled = true;
-            area.AxisX.ScaleView.Zoomable = true;
+            area.AxisX.ScrollBar.BackColor    = Palette.PanelBg;
+            area.AxisX.ScrollBar.ButtonColor  = Palette.SurfaceHi;
+            area.AxisX.ScrollBar.LineColor    = Palette.BorderCard;
+            area.AxisX.ScaleView.Zoomable     = true;
 
             _chart.ChartAreas.Add(area);
         }
@@ -117,20 +145,20 @@ namespace HelideckVer2.UI.Controls
         {
             var s = new Series(name)
             {
-                ChartType = SeriesChartType.FastLine,
-                BorderWidth = 2,
-                XValueType = ChartValueType.DateTime,
-                ChartArea = areaName,
-                Color = color
+                ChartType    = SeriesChartType.FastLine,
+                BorderWidth  = 2,
+                XValueType   = ChartValueType.DateTime,
+                ChartArea    = areaName,
+                Color        = color
             };
             _chart.Series.Add(s);
         }
 
         private void AlignAreas(string target, string master)
         {
-            _chart.ChartAreas[target].AlignWithChartArea = master;
-            _chart.ChartAreas[target].AlignmentOrientation = AreaAlignmentOrientations.Vertical;
-            _chart.ChartAreas[target].AlignmentStyle = AreaAlignmentStyles.PlotPosition | AreaAlignmentStyles.AxesView;
+            _chart.ChartAreas[target].AlignWithChartArea     = master;
+            _chart.ChartAreas[target].AlignmentOrientation   = AreaAlignmentOrientations.Vertical;
+            _chart.ChartAreas[target].AlignmentStyle         = AreaAlignmentStyles.PlotPosition | AreaAlignmentStyles.AxesView;
         }
 
         public void PushMotionData(double r, double p, double h)
@@ -160,21 +188,21 @@ namespace HelideckVer2.UI.Controls
         public void Render()
         {
             if (_chart.IsDisposed) return;
-            double nowX = DateTime.Now.ToOADate();
+            double nowX    = DateTime.Now.ToOADate();
             double viewSize = _viewMinutes / 1440.0;
-            double minX = DateTime.Now.AddMinutes(-BufferMinutes).ToOADate();
+            double minX    = DateTime.Now.AddMinutes(-BufferMinutes).ToOADate();
 
             _chart.SuspendLayout();
             if (_currentMode == TrendMode.Motion)
             {
-                UpdateSeries("Roll", _motionBuffer, 1);
+                UpdateSeries("Roll",  _motionBuffer, 1);
                 UpdateSeries("Pitch", _motionBuffer, 2);
                 UpdateSeries("Heave", _motionBuffer, 3);
             }
             else
             {
                 UpdateSeries("WindSpeed", _windBuffer, 1);
-                UpdateSeries("WindDir", _windBuffer, 2);
+                UpdateSeries("WindDir",   _windBuffer, 2);
             }
 
             foreach (var area in _chart.ChartAreas)
@@ -183,7 +211,6 @@ namespace HelideckVer2.UI.Controls
                 area.AxisX.Maximum = nowX;
                 area.AxisX.ScaleView.Size = viewSize;
 
-                // Chỉ tự động cuộn (Auto-scroll) nếu đang ở Live Mode
                 if (_isLiveMode)
                 {
                     _isProgrammaticScroll = true;
@@ -203,10 +230,6 @@ namespace HelideckVer2.UI.Controls
             foreach (var p in data) s.Points.AddXY(p.X, valIdx == 1 ? p.V1 : valIdx == 2 ? p.V2 : p.V3);
         }
 
-        // ==========================================
-        // CÁC HÀM XỬ LÝ SỰ KIỆN HOVER CHUỘT
-        // ==========================================
-
         private TrendPoint GetClosestPoint(List<TrendPoint> buffer, double targetX)
         {
             TrendPoint best = new TrendPoint { X = 0 };
@@ -216,14 +239,9 @@ namespace HelideckVer2.UI.Controls
                 foreach (var pt in buffer)
                 {
                     double diff = Math.Abs(pt.X - targetX);
-                    if (diff < minDiff)
-                    {
-                        minDiff = diff;
-                        best = pt;
-                    }
+                    if (diff < minDiff) { minDiff = diff; best = pt; }
                 }
             }
-            // Chỉ hiện thông số nếu chuột nằm gần điểm dữ liệu (sai số dưới 5 giây)
             if (minDiff < (5.0 / 86400.0)) return best;
             return new TrendPoint { X = 0 };
         }
@@ -235,7 +253,7 @@ namespace HelideckVer2.UI.Controls
             {
                 ChartArea area = _chart.ChartAreas[0];
                 double xVal = area.AxisX.PixelPositionToValue(e.X);
-                area.CursorX.Position = xVal; // Đường gióng bám theo chuột
+                area.CursorX.Position = xVal;
 
                 bool hasData = false;
                 string tip = "";
@@ -259,15 +277,8 @@ namespace HelideckVer2.UI.Controls
                     }
                 }
 
-                if (hasData)
-                {
-                    _hoverText = tip;
-                    _hoverPoint = e.Location;
-                }
-                else
-                {
-                    _hoverText = "";
-                }
+                if (hasData) { _hoverText = tip; _hoverPoint = e.Location; }
+                else _hoverText = "";
             }
             catch { _hoverText = ""; }
         }
@@ -276,7 +287,7 @@ namespace HelideckVer2.UI.Controls
         {
             _hoverText = "";
             foreach (var area in _chart.ChartAreas) area.CursorX.Position = double.NaN;
-            _chart.Invalidate(); // Xóa sạch text và crosshair khi chuột ra ngoài
+            _chart.Invalidate();
         }
 
         private void Chart_PostPaint(object sender, ChartPaintEventArgs e)
@@ -287,37 +298,33 @@ namespace HelideckVer2.UI.Controls
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
                 using (Font f = new Font("Segoe UI", 10, FontStyle.Bold))
-                using (SolidBrush bg = new SolidBrush(Color.FromArgb(230, 255, 255, 255)))
-                using (Pen border = new Pen(Color.Gray, 1))
-                using (SolidBrush fg = new SolidBrush(Color.Black))
+                using (SolidBrush bg = new SolidBrush(Color.FromArgb(220, Palette.CardBg.R, Palette.CardBg.G, Palette.CardBg.B)))
+                using (Pen border = new Pen(Palette.BorderCard, 1))
+                using (SolidBrush fg = new SolidBrush(Palette.TextValue))
                 {
                     SizeF size = g.MeasureString(_hoverText, f);
                     float x = _hoverPoint.X + 15;
                     float y = _hoverPoint.Y + 15;
 
-                    // Giữ bảng thông số luôn nằm trong khung hình (Không bị tràn ra ngoài)
-                    if (x + size.Width + 10 > _chart.Width) x = _chart.Width - size.Width - 15;
+                    if (x + size.Width + 10 > _chart.Width)  x = _chart.Width  - size.Width  - 15;
                     if (y + size.Height + 10 > _chart.Height) y = _chart.Height - size.Height - 15;
 
                     RectangleF rect = new RectangleF(x, y, size.Width + 10, size.Height + 10);
-
                     g.FillRectangle(bg, rect);
                     g.DrawRectangle(border, rect.X, rect.Y, rect.Width, rect.Height);
                     g.DrawString(_hoverText, f, fg, rect.X + 5, rect.Y + 5);
                 }
             }
         }
+
         private void Chart_AxisViewChanged(object sender, ViewEventArgs e)
         {
-            // Kiểm tra xem người dùng đang tự kéo hay hệ thống kéo
             if (!_isProgrammaticScroll && _chart.ChartAreas.Count > 0)
             {
                 ChartArea area = _chart.ChartAreas[0];
-                double max = area.AxisX.Maximum;
+                double max     = area.AxisX.Maximum;
                 double viewEnd = area.AxisX.ScaleView.Position + area.AxisX.ScaleView.Size;
-
-                // Nếu người dùng kéo sát về mép phải (cách hiện tại < 5 giây), bật lại tự động cuộn
-                _isLiveMode = Math.Abs(max - viewEnd) < (5.0 / 86400.0);
+                _isLiveMode    = Math.Abs(max - viewEnd) < (5.0 / 86400.0);
             }
         }
     }

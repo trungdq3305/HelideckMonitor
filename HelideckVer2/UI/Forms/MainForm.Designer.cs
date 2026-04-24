@@ -317,7 +317,7 @@ namespace HelideckVer2
             label9.Name = "label9";
             label9.Size = new Size(178, 73);
             label9.TabIndex = 16;
-            label9.Text = "WIND RELATED";
+            label9.Text = "WIND DIR";
             label9.TextAlign = ContentAlignment.MiddleLeft;
             label9.Click += label9_Click;
             // 

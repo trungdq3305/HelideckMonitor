@@ -1,15 +1,13 @@
-﻿using HelideckVer2.Models;
+using HelideckVer2.Models;
 using HelideckVer2.Services;
 using HelideckVer2.Services.Parsing;
+using HelideckVer2.UI.Theme;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
-using System.Reflection.Metadata;
 using System.Windows.Forms;
-using System.Windows.Forms.DataVisualization.Charting;
-using static System.Net.Mime.MediaTypeNames;
 using Application = System.Windows.Forms.Application;
 using Font = System.Drawing.Font;
 using Image = System.Drawing.Image;
@@ -18,260 +16,263 @@ namespace HelideckVer2
 {
     public partial class MainForm : Form
     {
-        private ComEngine _comEngine;
-        private NmeaParserService _nmeaParser;
+        private ComEngine             _comEngine;
+        private NmeaParserService     _nmeaParser;
         private HelideckVer2.UI.Controls.RadarControl _radarControl;
-        private HelideckVer2.UI.Controls.TrendChartControl.TrendMode _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Motion;
+        private HelideckVer2.UI.Controls.TrendChartControl.TrendMode _currentTrendMode
+            = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Motion;
         private DataLogger _logger;
-        
+
         private List<DeviceTask> _taskList;
 
-        private double _lastHeaveValue = 0;
+        private double _lastHeaveValue   = 0;
+        private double _rawHeaveCm       = 0; // giá trị có dấu, chỉ dùng để tính chu kỳ
         private DateTime? _lastZeroCrossTime = null;
 
         private AlarmEngine _alarmEngine;
-        private bool _isLiveMode = true;
-        private bool _isSeparateTrend = false; // Cờ theo dõi Tách/Gộp Trend
-        
-        private bool _isChartZoomed = false;   // THÊM CỜ NÀY: Theo dõi trạng thái Click Zoom
+        private bool _isSeparateTrend = false;
+
         private Tag _windTag, _rollTag, _pitchTag, _heaveTag;
         private Label lblAlarmStatus;
         private FlowLayoutPanel _topMenu;
         private TabControl _mainTabControl;
 
-        private const int BufferMinutes = 20;
-        private double _currentViewMinutes = 2.0;
+        private const double BufferMinutes    = 20;
+        private double _currentViewMinutes    = 2.0;
 
-        
-
-        private double _speedKnot, _headingDeg, _rollDeg, _pitchDeg, _heaveCm, _heavePeriodSec, _windSpeedMs, _windDirDeg;
+        // Biến lưu trữ GPS (sẽ đẩy vào DataHub)
+        private double _speedKnot;
+        private string _currentLat = "NO FIX";
+        private string _currentLon = "NO FIX";
 
         private System.Windows.Forms.Timer _healthTimer, _snapshotTimer, _chartUpdateTimer;
-        private const double StaleSeconds = 2.0;
+        private System.Windows.Forms.Timer _uiUpdateTimer;
 
-        private double _rollOffset = 0.0;
+        private double _rollOffset  = 0.0;
         private double _pitchOffset = 0.0;
-        private double _heaveArm = 10.0;
-        private bool _isProgrammaticScroll = false;
+        private double _heaveArm    = 10.0;
 
         private Label lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading;
-        //private ToolTip _chartToolTip = new ToolTip();
-        //private Point _lastMousePos = Point.Empty;
-
-        //private string _lastTooltipText = "";
-
-        private string _hoverText = "";
-        private Point _hoverPoint = Point.Empty;
-        
-
-        // ===== BIẾN HÃM TỐC ĐỘ UI =====
-        private DateTime _lastMotionUIUpdate = DateTime.MinValue;
-        private DateTime _lastWindUIUpdate = DateTime.MinValue;
-        private DateTime _lastGpsUIUpdate = DateTime.MinValue;
 
         private HelideckVer2.UI.Controls.TrendChartControl _trendControl;
 
-        private string _currentLat = "NO FIX";
-        private string _currentLon = "NO FIX";
-        // ==========================================
-        // 3. CONSTRUCTOR
-        // ==========================================
+        // ── CONSTRUCTOR ───────────────────────────────────────────────────────
         public MainForm()
         {
             InitializeComponent();
-            ApplyLeftPanelStyles();
-
-            LoadImageFromFile(pictureBox1, "picture1.png");
-            // Không load plan_view nữa để nhường chỗ vẽ Radar nền trắng
-            pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
-            pictureBox2.SizeMode = PictureBoxSizeMode.Zoom;
-
-            // GẮN SỰ KIỆN VẼ RADAR LÊN PICTUREBOX2
-            // --- THAY THẾ PICTUREBOX2 BẰNG RADAR ĐỘC LẬP ---
-            _radarControl = new HelideckVer2.UI.Controls.RadarControl { Dock = DockStyle.Fill };
-
-            // Chèn RadarControl vào cùng chỗ với pictureBox2
-            pictureBox2.Parent.Controls.Add(_radarControl);
-            _radarControl.BringToFront(); // Đưa lên lớp trên cùng
-            pictureBox2.Visible = false;  // Giấu pictureBox2 cũ đi (không ảnh hưởng file Designer)
 
             var cfg = ConfigService.Load();
             SystemConfig.Apply(cfg);
 
-            if (cfg.Tasks != null && cfg.Tasks.Count > 0)
+            if (cfg.Tasks != null)
             {
                 foreach (var saved in cfg.Tasks)
                 {
-                    // Nên tìm theo TaskName để chính xác hơn tìm theo PortName
                     var t = ConfigForm.Tasks.Find(x => x.TaskName == saved.TaskName);
                     if (t != null)
                     {
                         t.PortName = saved.PortName;
-                        //t.BaudRate = saved.BaudRate;
+                        if (saved.BaudRate > 0) t.BaudRate = saved.BaudRate;
                     }
                 }
             }
 
             InitializeTasks();
 
+            // Xây dựng layout
             SetupMainLayout();
+            ApplyLeftPanelStyles();
+            SetupRightPanelTitle();
             EnsureAlarmBadge();
             SetupStatusBadges();
             SetupTrendButtonsNearChart();
-            
 
+            // Radar thay thế pictureBox2
+            _radarControl = new HelideckVer2.UI.Controls.RadarControl { Dock = DockStyle.Fill };
+            pictureBox2.Parent.Controls.Add(_radarControl);
+            _radarControl.BringToFront();
+            pictureBox2.Visible = false;
+
+            // Ảnh chiếu tàu
+            LoadImageFromFile(pictureBox1, "picture1.png");
+            pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
+
+            // Logger
             _logger = new DataLogger();
 
             _snapshotTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-            _snapshotTimer.Tick += (s, e) => _logger.LogSnapshot(_speedKnot, _headingDeg, _rollDeg, _pitchDeg, _heaveCm, _heavePeriodSec, _windSpeedMs, _windDirDeg);
+            _snapshotTimer.Tick += SnapshotTimer_Tick;
             _snapshotTimer.Start();
 
+            // NMEA Parser
+            _nmeaParser = new NmeaParserService { HeaveArm = _heaveArm };
+            _nmeaParser.OnHeadingParsed  += HandleHeading;
+            _nmeaParser.OnWindParsed     += HandleWind;
+            _nmeaParser.OnMotionParsed   += HandleMotion;
+            _nmeaParser.OnPositionParsed += HandlePosition;
+            _nmeaParser.OnSpeedParsed    += HandleSpeed;
+
+            // COM Engine
             _comEngine = new ComEngine();
             _comEngine.OnDataReceived += OnComDataReceived;
 
-            // Dùng SystemConfig để quyết định chế độ chạy
-            if (HelideckVer2.Models.SystemConfig.IsSimulationMode)
+            if (SystemConfig.IsSimulationMode)
             {
-                var simEngine = new SimulationEngine();
-                // Bắt dữ liệu giả lập ném thẳng vào OnComDataReceived như thật
-                simEngine.Start(OnComDataReceived);
-                this.Text += " [SIMULATION MODE - READ FROM CONFIG]";
+                var sim = new SimulationEngine();
+                sim.Start(OnComDataReceived);
+                this.Text += "  [SIMULATION]";
             }
             else
             {
-                // Chạy COM Port thật
                 _comEngine.Initialize(_taskList);
             }
 
+            // Alarm Engine
             _alarmEngine = new AlarmEngine();
-            _windTag = new Tag("WindSpeed"); _rollTag = new Tag("Roll"); _pitchTag = new Tag("Pitch"); _heaveTag = new Tag("Heave");
+            _windTag  = new Tag("WindSpeed");
+            _rollTag  = new Tag("Roll");
+            _pitchTag = new Tag("Pitch");
+            _heaveTag = new Tag("Heave");
 
-            _alarmEngine.Register(new Alarm("AL_WIND", _windTag, () => SystemConfig.WindMax));
-            _alarmEngine.Register(new Alarm("AL_ROLL", _rollTag, () => SystemConfig.RMax));
+            _alarmEngine.Register(new Alarm("AL_WIND",  _windTag,  () => SystemConfig.WindMax));
+            _alarmEngine.Register(new Alarm("AL_ROLL",  _rollTag,  () => SystemConfig.RMax));
             _alarmEngine.Register(new Alarm("AL_PITCH", _pitchTag, () => SystemConfig.PMax));
             _alarmEngine.Register(new Alarm("AL_HEAVE", _heaveTag, () => SystemConfig.HMax));
 
-            _alarmEngine.AlarmRaised += OnAlarmRaised;
+            _alarmEngine.AlarmRaised  += OnAlarmRaised;
             _alarmEngine.AlarmCleared += OnAlarmCleared;
-            _alarmEngine.AlarmAcked += OnAlarmAcked;
+            _alarmEngine.AlarmAcked   += OnAlarmAcked;
 
             RefreshAlarmBanner();
-            
             StartHealthTimer();
 
-            _chartUpdateTimer = new System.Windows.Forms.Timer { Interval = 100 };
-            _chartUpdateTimer.Tick += (s, e) => _trendControl.Render(); ;
-            _chartUpdateTimer.Start();
-            // Khởi tạo và đăng ký lắng nghe sự kiện từ Parser
-            _nmeaParser = new NmeaParserService();
-            _nmeaParser.OnHeadingParsed += HandleHeading;
-            _nmeaParser.OnWindParsed += HandleWind;
-            _nmeaParser.OnMotionParsed += HandleMotion;
-            _nmeaParser.OnPositionParsed += HandlePosition;
-            _nmeaParser.OnSpeedParsed += HandleSpeed;
-            // --- THAY THẾ CHART CŨ BẰNG CONTROL ĐỘC LẬP ---
+            // Trend chart
             _trendControl = new HelideckVer2.UI.Controls.TrendChartControl { Dock = DockStyle.Fill };
             panelChartHost.Controls.Clear();
             panelChartHost.Controls.Add(_trendControl);
+
+            _chartUpdateTimer = new System.Windows.Forms.Timer { Interval = 100 };
+            _chartUpdateTimer.Tick += (s, e) => _trendControl.Render();
+            _chartUpdateTimer.Start();
         }
 
-        // ==========================================
-        // 4. UI SETUP & NAVIGATION
-        // ==========================================
+        // ── LAYOUT SETUP ──────────────────────────────────────────────────────
+
         private void SetupMainLayout()
         {
-            var root = new Panel { Dock = DockStyle.Fill, BackColor = Color.WhiteSmoke };
+            var root = new Panel { Dock = DockStyle.Fill, BackColor = Palette.AppBg };
             this.Controls.Add(root);
 
-            _topMenu = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, BackColor = Color.LightGray, Padding = new Padding(6), WrapContents = false };
-            Panel pnlBottom = new Panel { Dock = DockStyle.Bottom, Height = 60, BackColor = Color.WhiteSmoke };
+            _topMenu = new FlowLayoutPanel
+            {
+                Dock         = DockStyle.Top,
+                Height       = 44,
+                BackColor    = Palette.PanelBg,
+                Padding      = new Padding(6),
+                WrapContents = false
+            };
 
-            Button btnSetting = new Button { Text = "⚙ SETTINGS", Width = 150, Height = 40, Location = new Point(20, 10), BackColor = Color.Orange, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
+            Panel pnlBottom = new Panel
+            {
+                Dock      = DockStyle.Bottom,
+                Height    = 52,
+                BackColor = Palette.PanelBg,
+                Padding   = new Padding(8, 6, 8, 6)
+            };
+
+            Button btnSetting = new Button
+            {
+                Text      = "⚙  SETTINGS",
+                Width     = 150, Height = 38,
+                Location  = new Point(10, 7),
+                BackColor = Palette.BtnSettingsBg,
+                ForeColor = Palette.BtnSettingsFg,
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Segoe UI", 10, FontStyle.Bold)
+            };
+            btnSetting.FlatAppearance.BorderSize = 0;
             btnSetting.Click += BtnSettings_Click;
 
-            Button btnDataList = new Button { Text = "📋 VIEW DATA LIST", Width = 250, Height = 40, Location = new Point(190, 10), BackColor = Color.DodgerBlue, ForeColor = Color.White, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
-            btnDataList.Click += (s, e) => { new DataListForm().ShowDialog(this); };
+            Button btnDataList = new Button
+            {
+                Text      = "📋  RAW SCAN",
+                Width     = 160, Height = 38,
+                Location  = new Point(170, 7),
+                BackColor = Palette.BtnPrimaryBg,
+                ForeColor = Palette.BtnPrimaryFg,
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Segoe UI", 10, FontStyle.Bold)
+            };
+            btnDataList.FlatAppearance.BorderSize = 0;
+            btnDataList.Click += (s, e) => new DataListForm().ShowDialog(this);
 
             pnlBottom.Controls.Add(btnSetting);
             pnlBottom.Controls.Add(btnDataList);
 
-            Button btnOver = CreateMenuButton("OVERVIEW", Color.White);
-            btnOver.Click += (s, e) => _mainTabControl.SelectTab(0);
-
+            Button btnOver = CreateMenuButton("OVERVIEW", Color.Transparent);
+            btnOver.Click += (s, e) => _mainTabControl?.SelectTab(0);
             _topMenu.Controls.Add(btnOver);
 
-            _mainTabControl = new TabControl { Dock = DockStyle.Fill, Appearance = TabAppearance.FlatButtons, ItemSize = new Size(0, 1), SizeMode = TabSizeMode.Fixed };
+            _mainTabControl = new TabControl
+            {
+                Dock        = DockStyle.Fill,
+                Appearance  = TabAppearance.FlatButtons,
+                ItemSize    = new Size(0, 1),
+                SizeMode    = TabSizeMode.Fixed
+            };
 
-            var tabOverview = new TabPage("Overview") { BackColor = Color.WhiteSmoke };
-            this.tableLayoutPanel1.Parent = tabOverview;
-            this.tableLayoutPanel1.Dock = DockStyle.Fill;
-            this.tableLayoutPanel1.Visible = true;
-
+            var tabOverview = new TabPage("Overview") { BackColor = Palette.AppBg };
+            tableLayoutPanel1.Parent = tabOverview;
+            tableLayoutPanel1.Dock   = DockStyle.Fill;
+            tableLayoutPanel1.Visible = true;
             _mainTabControl.TabPages.Add(tabOverview);
 
             root.Controls.Add(_mainTabControl);
             root.Controls.Add(pnlBottom);
             root.Controls.Add(_topMenu);
         }
-        // ==========================================
-        // CÁC HÀM XỬ LÝ SỰ KIỆN TỪ NMEA PARSER
-        // ==========================================
-        
-        private void HandleHeading(double heading)
+
+        // Thêm nhãn tên dự án vào đầu panel phải (tableLayoutPanel4)
+        private void SetupRightPanelTitle()
         {
-            _headingDeg = heading;
-            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("HEADING", heading);
+            string shipName = SystemConfig.ShipName ?? "HELIDECK MONITOR";
+            var lblTitle = new Label
+            {
+                Text      = $"  PROJECT:  {shipName}",
+                Dock      = DockStyle.Top,
+                Height    = 30,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font      = new Font("Segoe UI", 11, FontStyle.Bold),
+                BackColor = Color.FromArgb(30, 50, 85),
+                ForeColor = Color.White,
+                Padding   = new Padding(8, 0, 0, 0)
+            };
+
+            // Chèn label vào panel chứa ảnh chiếu (tableLayoutPanel4)
+            tableLayoutPanel4.Controls.Add(lblTitle, 0, 0);
+            tableLayoutPanel4.SetColumnSpan(lblTitle, 2);
+
+            // Dịch pictureBox1 và pictureBox2 xuống row 1
+            tableLayoutPanel4.RowCount = 2;
+            tableLayoutPanel4.RowStyles.Clear();
+            tableLayoutPanel4.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+            tableLayoutPanel4.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            tableLayoutPanel4.SetRow(pictureBox1, 1);
+            tableLayoutPanel4.SetRow(pictureBox2, 1);
         }
 
-        private void HandleWind(double wSpeed, double wDir)
-        {
-            _windSpeedMs = wSpeed; _windDirDeg = wDir;
-            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("WIND", wSpeed, wDir);
-            _windTag.Update(wSpeed);
-        }
-
-        private void HandleMotion(double r, double p, double h)
-        {
-            double roll = r + _rollOffset;
-            double pitch = p + _pitchOffset;
-
-            // Lưu biến để dùng ở nơi khác
-            _rollDeg = roll;
-            _pitchDeg = pitch;
-            _heaveCm = h;
-
-            // Ghi vào DataHub
-            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("R/P/H", Math.Abs(roll), Math.Abs(pitch), Math.Abs(h));
-
-            // Cập nhật Tag cho hệ thống Alarm
-            _rollTag.Update(Math.Abs(roll));
-            _pitchTag.Update(Math.Abs(pitch));
-            _heaveTag.Update(Math.Abs(h));
-        }
-
-        private void HandlePosition(string fLat, string fLon)
-        {
-            // Cập nhật biến bộ nhớ tạm, UI Timer sẽ bốc lên vẽ sau
-            _currentLat = fLat;
-            _currentLon = fLon;
-        }
-        private void HandleSpeed(double k) { _speedKnot = k; }
-
-
+        // ── LEFT PANEL CARDS (8 data items) ──────────────────────────────────
 
         private void ApplyLeftPanelStyles()
         {
-            if (tableLayoutPanel1 != null)
-            {
-                tableLayoutPanel1.ColumnStyles.Clear();
-                tableLayoutPanel1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
-                tableLayoutPanel1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65F));
-            }
+            // 25% left / 75% right
+            tableLayoutPanel1.ColumnStyles.Clear();
+            tableLayoutPanel1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            tableLayoutPanel1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 75F));
 
-            // --- CẤU HÌNH NỀN GRID CHO CÁC THẺ ---
             tableLayoutPanel2.CellBorderStyle = TableLayoutPanelCellBorderStyle.None;
-            tableLayoutPanel2.BackColor = Color.FromArgb(230, 235, 240);
-            tableLayoutPanel2.Padding = new Padding(5);
+            tableLayoutPanel2.BackColor       = Color.FromArgb(18, 26, 40);
+            tableLayoutPanel2.Padding         = new Padding(4);
             tableLayoutPanel2.Controls.Clear();
             tableLayoutPanel2.ColumnStyles.Clear();
             tableLayoutPanel2.RowStyles.Clear();
@@ -280,102 +281,86 @@ namespace HelideckVer2
             tableLayoutPanel2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             tableLayoutPanel2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             tableLayoutPanel2.RowCount = 5;
-            for (int i = 0; i < 5; i++) tableLayoutPanel2.RowStyles.Add(new RowStyle(SizeType.Percent, 20F));
+            for (int i = 0; i < 5; i++)
+                tableLayoutPanel2.RowStyles.Add(new RowStyle(SizeType.Percent, 20F));
 
+            // Nhãn và giá trị
+            // items[0]=POSITION(full-width), [1-8] = SPEED,HEADING,ROLL,PITCH,HEAVE,H.PERIOD,WIND SPD, WIND DIR
             Label[] titles = { label1, label2, label3, label4, label5, label6, label7, label8, label9 };
-            string[] headers = { "POSITION", "SPEED", "HEADING", "ROLL", "PITCH", "HEAVE", "H.PERIOD", "WIND SPD", "WIND DIR" };
-            Label[] values = { lblPosition, lblSpeed, lblHeading, lblRoll, lblPitch, lblHeave, lblHeaveCycle, lblWindSpeed, lblWindRelated };
+            string[] headers = {
+                "POSITION", "SPEED", "HEADING",
+                "ROLL", "PITCH", "HEAVE",
+                "H.PERIOD", "WIND SPD", "WIND DIR"
+            };
+            Label[] values = {
+                lblPosition, lblSpeed, lblHeading,
+                lblRoll, lblPitch, lblHeave,
+                lblHeaveCycle, lblWindSpeed, lblWindRelated
+            };
+
+            Color cardBg  = Color.FromArgb(28, 42, 62);
+            Color sepClr  = Color.FromArgb(50, 70, 100);
+            Color titleFg = Color.FromArgb(150, 170, 200);
 
             for (int i = 0; i < 9; i++)
             {
                 if (titles[i] == null || values[i] == null) continue;
 
-                // 1. Tiêu đề thẻ (Chữ)
-                titles[i].Text = headers[i];
-                titles[i].AutoSize = false;
-                titles[i].Dock = DockStyle.Top;
+                titles[i].Text      = headers[i];
+                titles[i].AutoSize  = false;
+                titles[i].Dock      = DockStyle.Top;
                 titles[i].TextAlign = ContentAlignment.MiddleCenter;
-                titles[i].ForeColor = Color.DimGray;
-                titles[i].BackColor = Color.White; // CHỐNG GIẬT: Bỏ Transparent, dùng White
+                titles[i].ForeColor = titleFg;
+                titles[i].BackColor = cardBg;
 
-                // 2. Giá trị thẻ (Số)
-                values[i].Text = "---";
-                values[i].AutoSize = false;
-                values[i].Dock = DockStyle.Fill;
+                values[i].Text      = "---";
+                values[i].AutoSize  = false;
+                values[i].Dock      = DockStyle.Fill;
                 values[i].TextAlign = ContentAlignment.MiddleCenter;
-                values[i].BackColor = Color.White; // CHỐNG GIẬT: Bỏ Transparent, dùng White
-                values[i].ForeColor = Color.Black;
+                values[i].BackColor = cardBg;
+                values[i].ForeColor = Color.FromArgb(100, 220, 130); // green by default
 
-                if (i == 0) values[i].ForeColor = Color.DarkBlue; // POSITION
-                if (i == 5) values[i].ForeColor = Color.Red;      // HEAVE
+                if (i == 0) values[i].ForeColor = Color.FromArgb(100, 180, 255); // POSITION – blue
+                if (i == 5) values[i].ForeColor = Color.FromArgb(255, 160, 60);  // HEAVE – orange
 
-                Panel card = new Panel
-                {
-                    Dock = DockStyle.Fill,
-                    Margin = new Padding(6),
-                    BackColor = Color.White
-                };
+                // Thêm click ack alarm
+                if (i == 7) values[i].Click += lblWindSpeed_Click;
+                if (i == 3) values[i].Click += lblRoll_Click;
+                if (i == 4) values[i].Click += lblPitch_Click;
+                if (i == 5) values[i].Click += lblHeave_Click;
 
-                // CHỐNG GIẬT: Bật bộ đệm kép cho Card để viền không bị nháy khi vẽ lại
+                var card = new Panel { Dock = DockStyle.Fill, Margin = new Padding(4), BackColor = cardBg };
                 EnableDoubleBuffer(card);
+                int idx = i;
 
-                int index = i;
-
-                // --- ÉP FONT CO GIÃN THEO CẢ CHIỀU NGANG VÀ DỌC ---
+                // Font tự co giãn
                 card.Resize += (s, e) =>
                 {
                     if (card.Height <= 0 || card.Width <= 0) return;
 
-                    titles[index].Height = (int)(card.Height * 0.25f);
+                    titles[idx].Height = Math.Max(20, (int)(card.Height * 0.28f));
 
-                    float titleFontSize = Math.Min(card.Height * 0.10f, card.Width * 0.07f);
-                    titleFontSize = Math.Max(9f, Math.Min(titleFontSize, 22f));
+                    float tf = Math.Max(8f, Math.Min(Math.Min(card.Height * 0.10f, card.Width * 0.08f), 18f));
+                    SafeSetFont(titles[idx], tf);
 
-                    if (titles[index].Font == null || Math.Abs(titles[index].Font.Size - titleFontSize) > 0.5f)
-                    {
-                        Font oldFont = titles[index].Font;
-                        titles[index].Font = new Font("Segoe UI", titleFontSize, FontStyle.Bold);
-                        if (oldFont != null) oldFont.Dispose();
-                    }
-
-                    float valueFontSize;
-                    if (index == 0)
-                    {
-                        valueFontSize = Math.Min(card.Height * 0.13f, card.Width * 0.045f);
-                    }
-                    else
-                    {
-                        valueFontSize = Math.Min(card.Height * 0.32f, card.Width * 0.14f);
-                    }
-
-                    valueFontSize = Math.Max(10f, Math.Min(valueFontSize, 50f));
-
-                    if (values[index].Font == null || Math.Abs(values[index].Font.Size - valueFontSize) > 0.5f)
-                    {
-                        Font oldFont = values[index].Font;
-                        values[index].Font = new Font("Segoe UI", valueFontSize, FontStyle.Bold);
-                        if (oldFont != null) oldFont.Dispose();
-                    }
+                    float vf = idx == 0
+                        ? Math.Max(8f,  Math.Min(Math.Min(card.Height * 0.14f, card.Width * 0.055f), 20f))
+                        : Math.Max(10f, Math.Min(Math.Min(card.Height * 0.30f, card.Width * 0.16f), 42f));
+                    SafeSetFont(values[idx], vf);
                 };
 
-                // Vẽ bo góc thẻ và vạch kẻ ngang
+                // Viền bo góc
                 card.Paint += (s, e) =>
                 {
-                    Graphics g = e.Graphics;
+                    var g = e.Graphics;
                     g.SmoothingMode = SmoothingMode.AntiAlias;
-
-                    Rectangle rect = new Rectangle(0, 0, card.Width - 1, card.Height - 1);
-                    using (GraphicsPath path = GetRoundedRect(rect, 12))
-                    using (Pen pen = new Pen(Color.LightGray, 2))
-                    {
-                        g.DrawPath(pen, path);
-                    }
-
-                    int lineY = titles[index].Height;
-                    using (Pen sepPen = new Pen(Color.FromArgb(220, 220, 220), 2))
-                    {
-                        g.DrawLine(sepPen, 15, lineY, card.Width - 15, lineY);
-                    }
+                    var rect = new Rectangle(0, 0, card.Width - 1, card.Height - 1);
+                    using var path = GetRoundedRect(rect, 10);
+                    using var pen  = new Pen(sepClr, 1);
+                    g.DrawPath(pen, path);
+                    int lineY = titles[idx].Height;
+                    using var sp = new Pen(Color.FromArgb(45, 65, 90), 1);
+                    g.DrawLine(sp, 8, lineY, card.Width - 8, lineY);
                 };
 
                 card.Controls.Add(values[i]);
@@ -394,303 +379,433 @@ namespace HelideckVer2
                 }
             }
         }
-        // --- HÀM HỖ TRỢ VẼ BO GÓC ---
-        private GraphicsPath GetRoundedRect(Rectangle bounds, int radius)
+
+        private static void SafeSetFont(Label lbl, float size)
         {
-            int diameter = radius * 2;
-            Size size = new Size(diameter, diameter);
-            Rectangle arc = new Rectangle(bounds.Location, size);
-            GraphicsPath path = new GraphicsPath();
-
-            if (radius == 0) { path.AddRectangle(bounds); return path; }
-
-            path.AddArc(arc, 180, 90); // Góc trên trái
-            arc.X = bounds.Right - diameter;
-            path.AddArc(arc, 270, 90); // Góc trên phải
-            arc.Y = bounds.Bottom - diameter;
-            path.AddArc(arc, 0, 90);   // Góc dưới phải
-            arc.X = bounds.Left;
-            path.AddArc(arc, 90, 90);  // Góc dưới trái
-            path.CloseFigure();
-
-            return path;
+            if (lbl.Font != null && Math.Abs(lbl.Font.Size - size) < 0.5f) return;
+            Font old = lbl.Font;
+            lbl.Font = new Font("Segoe UI", size, FontStyle.Bold);
+            old?.Dispose();
         }
 
-        // ==========================================
-        // 5. CẬP NHẬT TÍN HIỆU & ALARM CHO POP-UP
-        // ==========================================
-        private int FindRowIndex(string taskName)
+        // ── NMEA HANDLERS ─────────────────────────────────────────────────────
+
+        private void HandleHeading(double heading)
         {
-            return taskName switch { "GPS" => 0, "WIND" => 1, "R/P/H" => 2, "HEADING" => 3, _ => -1 };
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("HEADING", heading);
         }
 
-        // Khai báo thêm biến Timer này ở gần đầu file MainForm.cs (chỗ khai báo _healthTimer)
-        private System.Windows.Forms.Timer _uiUpdateTimer;
+        private void HandleWind(double wSpeed, double wDir)
+        {
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("WIND", wSpeed, wDir);
+            _windTag.Update(wSpeed);
+        }
+
+        private void HandleMotion(double r, double p, double h)
+        {
+            double roll  = r + _rollOffset;
+            double pitch = p + _pitchOffset;
+            _rawHeaveCm  = h; // giữ dấu để tính zero-crossing
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("R/P/H",
+                Math.Abs(roll), Math.Abs(pitch), Math.Abs(h));
+            _rollTag.Update(Math.Abs(roll));
+            _pitchTag.Update(Math.Abs(pitch));
+            _heaveTag.Update(Math.Abs(h));
+        }
+
+        private void HandlePosition(string fLat, string fLon)
+        {
+            _currentLat = fLat;
+            _currentLon = fLon;
+            // Cập nhật DataHub GPS string (raw cũng được cập nhật qua OnComDataReceived)
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateGpsData(_speedKnot, fLat, fLon);
+        }
+
+        private void HandleSpeed(double k)
+        {
+            _speedKnot = k;
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateGpsData(k, _currentLat, _currentLon);
+        }
+
+        // ── COM DATA RECEIVED ─────────────────────────────────────────────────
+
+        private void OnComDataReceived(string portName, string rawData)
+        {
+            // Lưu chuỗi raw vào DataHub cho Bảng quét thô
+            var task = _taskList.Find(t => t.PortName == portName);
+            if (task != null)
+                HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateRawString(task.TaskName, rawData);
+
+            _nmeaParser.Parse(portName, rawData);
+        }
+
+        // ── HEALTH + UI TIMERS ────────────────────────────────────────────────
 
         private void StartHealthTimer()
         {
             if (_healthTimer != null) return;
 
-            // 1. Timer kiểm tra kết nối (1 giây/lần)
+            // 1 Hz – kiểm tra stale / badge
             _healthTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             _healthTimer.Tick += (s, e) =>
             {
-                var snapshot = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
-                foreach (var row in snapshot.TaskRows)
+                var snap = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
+                foreach (var row in snap.TaskRows)
                 {
-                    string taskName = row.TaskName;
-                    bool isStale = row.IsStale;
-                    double age = row.Age;
-
-                    switch (taskName)
+                    switch (row.TaskName)
                     {
                         case "GPS":
-                            UpdateBadge(lblStatGPS, "GPS", isStale, age);
-                            UpdateLabelStatus(lblPosition, !isStale);
-                            UpdateLabelStatus(lblSpeed, !isStale);
+                            UpdateBadge(lblStatGPS, "GPS", row.IsStale, row.Age);
+                            UpdateLabelStatus(lblPosition, !row.IsStale);
+                            UpdateLabelStatus(lblSpeed, !row.IsStale);
                             break;
                         case "WIND":
-                            UpdateBadge(lblStatWind, "WIND", isStale, age);
-                            UpdateLabelStatus(lblWindSpeed, !isStale);
-                            UpdateLabelStatus(lblWindRelated, !isStale);
+                            UpdateBadge(lblStatWind, "WIND", row.IsStale, row.Age);
+                            UpdateLabelStatus(lblWindSpeed, !row.IsStale);
+                            UpdateLabelStatus(lblWindRelated, !row.IsStale);
                             break;
                         case "R/P/H":
-                            UpdateBadge(lblStatMotion, "R/P/H", isStale, age);
-                            UpdateLabelStatus(lblRoll, !isStale);
-                            UpdateLabelStatus(lblPitch, !isStale);
-                            UpdateLabelStatus(lblHeave, !isStale);
-                            UpdateLabelStatus(lblHeaveCycle, !isStale);
+                            UpdateBadge(lblStatMotion, "R/P/H", row.IsStale, row.Age);
+                            UpdateLabelStatus(lblRoll,      !row.IsStale);
+                            UpdateLabelStatus(lblPitch,     !row.IsStale);
+                            UpdateLabelStatus(lblHeave,     !row.IsStale);
+                            UpdateLabelStatus(lblHeaveCycle,!row.IsStale);
                             break;
                         case "HEADING":
-                            UpdateBadge(lblStatHeading, "HEADING", isStale, age);
-                            UpdateLabelStatus(lblHeading, !isStale);
+                            UpdateBadge(lblStatHeading, "HDG", row.IsStale, row.Age);
+                            UpdateLabelStatus(lblHeading, !row.IsStale);
                             break;
                     }
                 }
             };
             _healthTimer.Start();
 
-            // 2. TẠO TIMER VẼ GIAO DIỆN (100ms/lần)
+            // 100 ms – vẽ UI, chart, tính heave period
             _uiUpdateTimer = new System.Windows.Forms.Timer { Interval = 100 };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
             _uiUpdateTimer.Start();
         }
 
-        // HÀM CHUYÊN TRÁCH CẬP NHẬT GIAO DIỆN
         private void UiUpdateTimer_Tick(object sender, EventArgs e)
         {
-            // 1. Đánh giá Báo động
+            // 1. Đánh giá alarm
             _alarmEngine.Evaluate();
 
-            // 2. Chụp Snapshot dữ liệu MỚI NHẤT
-            var snapshot = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
+            // 2. Snapshot
+            var snap = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
 
-            // 3. Đẩy dữ liệu vào Biểu đồ
-            _trendControl.PushMotionData(snapshot.RollDeg, snapshot.PitchDeg, snapshot.HeaveCm);
-            _trendControl.PushWindData(snapshot.WindSpeedMs, snapshot.WindDirDeg);
+            // 3. Đẩy vào trend chart
+            _trendControl.PushMotionData(snap.RollDeg, snap.PitchDeg, snap.HeaveCm);
+            _trendControl.PushWindData(snap.WindSpeedMs, snap.WindDirDeg);
 
-            // 4. Cập nhật nhãn (Labels)
-            lblHeading.Text = $"{snapshot.Heading:0.0}°";
-            lblWindSpeed.Text = $"{snapshot.WindSpeedMs:0.0} m/s";
-            lblWindRelated.Text = $"{snapshot.WindDirDeg:0}°";
-            lblRoll.Text = $"{snapshot.RollDeg:0.0}°";
-            lblPitch.Text = $"{snapshot.PitchDeg:0.0}°";
-            lblHeave.Text = $"{snapshot.HeaveCm:0.0} cm";
-            lblSpeed.Text = $"{_speedKnot:0.0} kn";
-            lblPosition.Text = _currentLat == "NO FIX" ? "NO FIX" : $"{_currentLon}\r\n{_currentLat}";
-            // 5. Cập nhật Radar
-            _radarControl.UpdateRadar(snapshot.Heading, snapshot.WindDirDeg);
+            // 4. Cập nhật nhãn
+            lblHeading.Text    = $"{snap.Heading:0.0}°";
+            lblWindSpeed.Text  = $"{snap.WindSpeedMs:0.0} m/s";
+            lblWindRelated.Text= $"{snap.WindDirDeg:0}°";
+            lblRoll.Text       = $"{snap.RollDeg:0.0}°";
+            lblPitch.Text      = $"{snap.PitchDeg:0.0}°";
+            lblHeave.Text      = $"{snap.HeaveCm:0.0} cm";
+            lblSpeed.Text      = $"{snap.GpsSpeedKnot:0.0} kn";
 
-            // 6. Tính toán Chu kỳ Heave (Zero-crossing)
+            if (snap.GpsLat == "NO FIX")
+                lblPosition.Text = "NO FIX";
+            else
+                lblPosition.Text = $"{snap.GpsLon}\n{snap.GpsLat}";
+
+            lblHeaveCycle.Text = snap.HeavePeriodSec > 0
+                ? $"{snap.HeavePeriodSec:0.0} s"
+                : "---";
+
+            // 5. Radar
+            _radarControl.UpdateRadar(snap.Heading, snap.WindDirDeg);
+
+            // 6. Tính chu kỳ Heave (zero-crossing âm→dương trên giá trị CÓ DẤU)
             DateTime now = DateTime.Now;
-            if (_lastHeaveValue < 0 && snapshot.HeaveCm >= 0)
+            if (_lastHeaveValue < 0 && _rawHeaveCm >= 0)
             {
-                if (_lastZeroCrossTime != null)
+                if (_lastZeroCrossTime.HasValue)
                 {
                     double sec = (now - _lastZeroCrossTime.Value).TotalSeconds;
-                    if (sec > 2.0)
-                    {
-                        lblHeaveCycle.Text = $"{sec:0.0} s";
+                    if (sec >= 2.0 && sec <= 30.0)
                         HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateHeavePeriod(sec);
-                    }
                 }
                 _lastZeroCrossTime = now;
             }
-            _lastHeaveValue = snapshot.HeaveCm;
+            _lastHeaveValue = _rawHeaveCm;
         }
 
-
-
-        private bool IsAlarmActive(string alarmId)
+        private void SnapshotTimer_Tick(object sender, EventArgs e)
         {
-            foreach (var alarm in _alarmEngine.GetAll()) { if (alarm.Id == alarmId && alarm.IsActive) return true; }
+            var snap = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
+            _logger.LogSnapshot(
+                snap.GpsSpeedKnot, snap.Heading,
+                snap.RollDeg, snap.PitchDeg, snap.HeaveCm,
+                snap.HeavePeriodSec, snap.WindSpeedMs, snap.WindDirDeg,
+                snap.GpsLat, snap.GpsLon);
+        }
+
+        // ── ALARM ─────────────────────────────────────────────────────────────
+
+        private bool IsAlarmActive(string id)
+        {
+            foreach (var a in _alarmEngine.GetAll())
+                if (a.Id == id && a.IsActive) return true;
             return false;
-        }
-
-        private void SetAlarmRow(string changedAlarmId, string state)
-        {
-            List<string> activeRPH = new List<string>();
-            if (IsAlarmActive("AL_ROLL")) activeRPH.Add("ROLL");
-            if (IsAlarmActive("AL_PITCH")) activeRPH.Add("PITCH");
-            if (IsAlarmActive("AL_HEAVE")) activeRPH.Add("HEAVE");
-
-            string rphAlarm = activeRPH.Count > 0 ? string.Join(", ", activeRPH) : "Normal";
-            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateAlarmState("R/P/H", rphAlarm);
-
-            string windAlarm = IsAlarmActive("AL_WIND") ? "WIND" : "Normal";
-            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateAlarmState("WIND", windAlarm);
         }
 
         private void RefreshAlarmBanner()
         {
             if (lblAlarmStatus == null) return;
             var all = new List<Alarm>(_alarmEngine.GetAll());
-            var activeUnacked = all.Find(a => a.IsActive && !a.IsAcked);
-            var activeAcked = all.Find(a => a.IsActive && a.IsAcked);
+            var unacked = all.Find(a => a.IsActive && !a.IsAcked);
+            var acked   = all.Find(a => a.IsActive && a.IsAcked);
 
-            if (activeUnacked != null) { lblAlarmStatus.Text = $"ALARM: {activeUnacked.Id}"; lblAlarmStatus.BackColor = Color.DarkRed; lblAlarmStatus.ForeColor = Color.White; return; }
-            if (activeAcked != null) { lblAlarmStatus.Text = $"ACK: {activeAcked.Id}"; lblAlarmStatus.BackColor = Color.Orange; lblAlarmStatus.ForeColor = Color.Black; return; }
-
-            lblAlarmStatus.Text = "NORMAL"; lblAlarmStatus.BackColor = Color.Black; lblAlarmStatus.ForeColor = Color.Lime;
-        }
-
-        private void OnAlarmRaised(Alarm a) { SetAlarmColor(a.Id, Color.Red); RefreshAlarmBanner(); SetAlarmRow(a.Id, "Active"); _logger.LogAlarmEvent("RAISED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider()); }
-        private void OnAlarmCleared(Alarm a) { SetAlarmColor(a.Id, Color.Black); RefreshAlarmBanner(); SetAlarmRow(a.Id, "Normal"); _logger.LogAlarmEvent("CLEARED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider()); }
-        private void OnAlarmAcked(Alarm a) { SetAlarmColor(a.Id, Color.Orange); RefreshAlarmBanner(); SetAlarmRow(a.Id, "Ack"); _logger.LogAlarmEvent("ACKED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider()); }
-        private void SetAlarmColor(string id, Color c) { if (id == "AL_WIND") { lblWindSpeed.ForeColor = c; lblWindRelated.ForeColor = c; } else if (id == "AL_ROLL") lblRoll.ForeColor = c; else if (id == "AL_PITCH") lblPitch.ForeColor = c; else if (id == "AL_HEAVE") lblHeave.ForeColor = c; }
-
-        private void lblWindSpeed_Click(object s, EventArgs e) => _alarmEngine.Ack("AL_WIND");
-        private void lblRoll_Click(object s, EventArgs e) => _alarmEngine.Ack("AL_ROLL");
-        private void lblPitch_Click(object s, EventArgs e) => _alarmEngine.Ack("AL_PITCH");
-        private void lblHeave_Click(object s, EventArgs e) => _alarmEngine.Ack("AL_HEAVE");
-
-        // ==========================================
-        // 6. XỬ LÝ COM PORT, PARSE VÀ TREND CHART
-        // ==========================================
-
-        private void OnComDataReceived(string portName, string rawData)
-        {
-            // BƠM CHUỖI RAW THẲNG VÀO DATAHUB CHO DATALIST (BẢNG QUÉT)
-            var task = _taskList.Find(t => t.PortName == portName);
-            if (task != null)
+            if (unacked != null)
             {
-                HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateRawString(task.TaskName, rawData);
+                lblAlarmStatus.Text      = $"⚠ ALARM: {unacked.Id}";
+                lblAlarmStatus.BackColor = Color.DarkRed;
+                lblAlarmStatus.ForeColor = Color.White;
             }
-
-            // Đẩy cho Parser dịch
-            _nmeaParser.Parse(portName, rawData);
+            else if (acked != null)
+            {
+                lblAlarmStatus.Text      = $"ACK: {acked.Id}";
+                lblAlarmStatus.BackColor = Color.DarkOrange;
+                lblAlarmStatus.ForeColor = Color.Black;
+            }
+            else
+            {
+                lblAlarmStatus.Text      = "✔ NORMAL";
+                lblAlarmStatus.BackColor = Color.FromArgb(20, 80, 40);
+                lblAlarmStatus.ForeColor = Color.Lime;
+            }
         }
 
+        private void SetAlarmRow(string id, string state)
+        {
+            var rphActive = new List<string>();
+            if (IsAlarmActive("AL_ROLL"))  rphActive.Add("ROLL");
+            if (IsAlarmActive("AL_PITCH")) rphActive.Add("PITCH");
+            if (IsAlarmActive("AL_HEAVE")) rphActive.Add("HEAVE");
 
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateAlarmState("R/P/H",
+                rphActive.Count > 0 ? string.Join(",", rphActive) : "Normal");
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateAlarmState("WIND",
+                IsAlarmActive("AL_WIND") ? "WIND" : "Normal");
+        }
 
-        
+        private void OnAlarmRaised(Alarm a)
+        {
+            SetAlarmColor(a.Id, Color.Red);
+            RefreshAlarmBanner();
+            SetAlarmRow(a.Id, "Active");
+            _logger.LogAlarmEvent("RAISED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider());
+        }
+        private void OnAlarmCleared(Alarm a)
+        {
+            SetAlarmColor(a.Id, Color.FromArgb(100, 220, 130));
+            RefreshAlarmBanner();
+            SetAlarmRow(a.Id, "Normal");
+            _logger.LogAlarmEvent("CLEARED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider());
+        }
+        private void OnAlarmAcked(Alarm a)
+        {
+            SetAlarmColor(a.Id, Color.Orange);
+            RefreshAlarmBanner();
+            SetAlarmRow(a.Id, "Ack");
+            _logger.LogAlarmEvent("ACKED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider());
+        }
 
-        // ==========================================
-        // 7. CÁC HÀM TIỆN ÍCH, VẼ GIAO DIỆN, CHART
-        // ==========================================
+        private void SetAlarmColor(string id, Color c)
+        {
+            if (id == "AL_WIND")  { lblWindSpeed.ForeColor  = c; lblWindRelated.ForeColor = c; }
+            else if (id == "AL_ROLL")  lblRoll.ForeColor  = c;
+            else if (id == "AL_PITCH") lblPitch.ForeColor = c;
+            else if (id == "AL_HEAVE") lblHeave.ForeColor = c;
+        }
+
+        private void lblWindSpeed_Click(object s, EventArgs e)  => _alarmEngine.Ack("AL_WIND");
+        private void lblRoll_Click(object s, EventArgs e)        => _alarmEngine.Ack("AL_ROLL");
+        private void lblPitch_Click(object s, EventArgs e)       => _alarmEngine.Ack("AL_PITCH");
+        private void lblHeave_Click(object s, EventArgs e)       => _alarmEngine.Ack("AL_HEAVE");
+
+        // ── TREND BUTTONS ─────────────────────────────────────────────────────
+
+        private void SetupTrendButtonsNearChart()
+        {
+            panelTrendButtons.Controls.Clear();
+
+            Button btnTrend1 = CreateMenuButton("TREND R/P/H", Color.SteelBlue);
+            btnTrend1.Click += (s, e) =>
+            {
+                _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Motion;
+                _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
+            };
+
+            Button btnTrend2 = CreateMenuButton("TREND WIND", Color.SteelBlue);
+            btnTrend2.Click += (s, e) =>
+            {
+                _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Wind;
+                _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
+            };
+
+            Button btnZoom = CreateMenuButton("VIEW: 2 Min", Color.DodgerBlue);
+            btnZoom.Click += (s, e) =>
+            {
+                _currentViewMinutes = _currentViewMinutes == 2.0 ? 20.0 : 2.0;
+                btnZoom.Text = $"VIEW: {_currentViewMinutes:0} Min";
+                _trendControl.SetViewWindow(_currentViewMinutes);
+            };
+
+            Button btnToggleSplit = CreateMenuButton("MODE: COMBINED", Color.ForestGreen);
+            btnToggleSplit.Click += (s, e) =>
+            {
+                _isSeparateTrend       = !_isSeparateTrend;
+                btnToggleSplit.Text    = _isSeparateTrend ? "MODE: SPLIT" : "MODE: COMBINED";
+                btnToggleSplit.BackColor = _isSeparateTrend ? Color.DarkOrange : Color.ForestGreen;
+                _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
+            };
+
+            panelTrendButtons.Controls.AddRange(new Control[] { btnTrend1, btnTrend2, btnToggleSplit, btnZoom });
+        }
+
+        // ── UTILITY ───────────────────────────────────────────────────────────
+
         private void InitializeTasks()
         {
             _taskList = new List<DeviceTask>();
             foreach (var t in ConfigForm.Tasks)
-            {
-                _taskList.Add(new DeviceTask
-                {
-                    TaskName = t.TaskName,
-                    PortName = t.PortName,
-                    BaudRate = t.BaudRate
-                });
-            }
+                _taskList.Add(new DeviceTask { TaskName = t.TaskName, PortName = t.PortName, BaudRate = t.BaudRate });
         }
-        private void UpdateBadge(Label lbl, string name, bool isStale, double age) { if (age > 900) { lbl.Text = $"{name}: WAIT"; lbl.BackColor = Color.DimGray; } else if (isStale) { lbl.Text = $"{name}: LOST"; lbl.BackColor = Color.Red; } else { lbl.Text = $"{name}: OK"; lbl.BackColor = Color.ForestGreen; } }
-        private void UpdateLabelStatus(Label lbl, bool isAlive) { if (lbl != null) { if (isAlive && lbl.ForeColor == Color.Gray) lbl.ForeColor = Color.Black; else if (!isAlive) lbl.ForeColor = Color.Gray; } }
-        private void EnsureAlarmBadge() { if (lblAlarmStatus == null) { lblAlarmStatus = new Label { AutoSize = false, Width = 240, Height = 30, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 12, FontStyle.Bold), BackColor = Color.Black, ForeColor = Color.Lime, Text = "NORMAL", Margin = new Padding(20, 7, 5, 5) }; _topMenu.Controls.Add(lblAlarmStatus); } }
-        private void SetupStatusBadges() { Label CreateBadge(string text) => new Label { Text = text, AutoSize = false, Size = new Size(140, 30), TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 11, FontStyle.Bold), BackColor = Color.DimGray, ForeColor = Color.White, Margin = new Padding(5, 7, 0, 5), BorderStyle = BorderStyle.FixedSingle }; lblStatGPS = CreateBadge("GPS: WAIT"); lblStatWind = CreateBadge("WIND: WAIT"); lblStatMotion = CreateBadge("R/P/H: WAIT"); lblStatHeading = CreateBadge("HEADING: WAIT"); _topMenu.Controls.AddRange(new Control[] { lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading }); }
+
+        private void UpdateBadge(Label lbl, string name, bool isStale, double age)
+        {
+            if (age > 900)  { lbl.Text = $"{name}: WAIT"; lbl.BackColor = Color.FromArgb(60, 60, 60); }
+            else if (isStale){ lbl.Text = $"{name}: LOST"; lbl.BackColor = Color.DarkRed; }
+            else             { lbl.Text = $"{name}: OK";   lbl.BackColor = Color.FromArgb(20, 100, 40); }
+        }
+
+        private void UpdateLabelStatus(Label lbl, bool isAlive)
+        {
+            if (lbl == null) return;
+            if (!isAlive) lbl.ForeColor = Color.Gray;
+            else if (lbl.ForeColor == Color.Gray) lbl.ForeColor = Color.FromArgb(100, 220, 130);
+        }
+
+        private void EnsureAlarmBadge()
+        {
+            if (lblAlarmStatus != null) return;
+            lblAlarmStatus = new Label
+            {
+                AutoSize  = false,
+                Width     = 220, Height = 30,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font      = new Font("Segoe UI", 10, FontStyle.Bold),
+                BackColor = Color.FromArgb(20, 80, 40),
+                ForeColor = Color.Lime,
+                Text      = "✔ NORMAL",
+                Margin    = new Padding(16, 7, 5, 5)
+            };
+            _topMenu.Controls.Add(lblAlarmStatus);
+        }
+
+        private void SetupStatusBadges()
+        {
+            Label CreateBadge(string text) => new Label
+            {
+                Text        = text,
+                AutoSize    = false,
+                Size        = new Size(130, 30),
+                TextAlign   = ContentAlignment.MiddleCenter,
+                Font        = new Font("Segoe UI", 9, FontStyle.Bold),
+                BackColor   = Color.FromArgb(60, 60, 60),
+                ForeColor   = Color.White,
+                Margin      = new Padding(4, 7, 0, 5),
+                BorderStyle = BorderStyle.None
+            };
+
+            lblStatGPS     = CreateBadge("GPS: WAIT");
+            lblStatWind    = CreateBadge("WIND: WAIT");
+            lblStatMotion  = CreateBadge("R/P/H: WAIT");
+            lblStatHeading = CreateBadge("HDG: WAIT");
+            _topMenu.Controls.AddRange(new Control[] { lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading });
+        }
+
         private Button CreateMenuButton(string text, Color bg) => new Button
         {
-            Text = text,
-            BackColor = bg,
-            FlatStyle = FlatStyle.Flat,
-            AutoSize = true, // Tự động giãn chiều ngang
-            MinimumSize = new Size(0, 30), // Khóa cứng chiều cao tối thiểu 30px
-            MaximumSize = new Size(0, 30), // Khóa cứng chiều cao tối đa 30px (Chống phình to chiều dọc)
-            Padding = new Padding(10, 0, 10, 0),
-            Margin = new Padding(5, 2, 5, 2)
+            Text        = text,
+            BackColor   = bg,
+            ForeColor   = Color.White,
+            FlatStyle   = FlatStyle.Flat,
+            AutoSize    = true,
+            MinimumSize = new Size(0, 30),
+            MaximumSize = new Size(0, 30),
+            Padding     = new Padding(10, 0, 10, 0),
+            Margin      = new Padding(4, 2, 4, 2),
+            Font        = new Font("Segoe UI", 9, FontStyle.Bold)
         };
 
         private void LoadImageFromFile(PictureBox picBox, string fileName)
         {
             try
             {
-                // 1. Lấy đường dẫn tới thư mục Images
-                string folderPath = Path.Combine(Application.StartupPath, "Images");
-
-                // 2. TỰ ĐỘNG TẠO THƯ MỤC NẾU CHƯA TỒN TẠI
-                if (!Directory.Exists(folderPath))
-                {
-                    Directory.CreateDirectory(folderPath);
-                }
-
-                // 3. Ghép tên file và load ảnh
-                string path = Path.Combine(folderPath, fileName);
+                string folder = Path.Combine(Application.StartupPath, "Images");
+                Directory.CreateDirectory(folder);
+                string path = Path.Combine(folder, fileName);
                 if (File.Exists(path))
                 {
-                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
-                    {
-                        picBox.Image = Image.FromStream(stream);
-                    }
+                    using var stream = new FileStream(path, FileMode.Open, FileAccess.Read);
+                    picBox.Image = Image.FromStream(stream);
                 }
             }
-            catch { /* Bỏ qua lỗi để không làm treo phần mềm nếu ảnh bị hỏng */ }
+            catch { }
         }
-        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); this.DoubleBuffered = true; EnableDoubleBuffer(tableLayoutPanel1); EnableDoubleBuffer(tableLayoutPanel2); EnableDoubleBuffer(tableLayoutPanel3); EnableDoubleBuffer(tableLayoutPanelTrend); }
-        private void EnableDoubleBuffer(Control c) { if (c != null) typeof(Control).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.SetValue(c, true, null); }
+
+        private GraphicsPath GetRoundedRect(Rectangle bounds, int radius)
+        {
+            int d = radius * 2;
+            var path = new GraphicsPath();
+            if (radius == 0) { path.AddRectangle(bounds); return path; }
+            var arc = new Rectangle(bounds.Location, new Size(d, d));
+            path.AddArc(arc, 180, 90);
+            arc.X = bounds.Right - d;
+            path.AddArc(arc, 270, 90);
+            arc.Y = bounds.Bottom - d;
+            path.AddArc(arc, 0, 90);
+            arc.X = bounds.Left;
+            path.AddArc(arc, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            this.DoubleBuffered = true;
+            EnableDoubleBuffer(tableLayoutPanel1);
+            EnableDoubleBuffer(tableLayoutPanel2);
+            EnableDoubleBuffer(tableLayoutPanel3);
+            EnableDoubleBuffer(tableLayoutPanelTrend);
+        }
+
+        private void EnableDoubleBuffer(Control c)
+        {
+            if (c == null) return;
+            typeof(Control)
+                .GetProperty("DoubleBuffered",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.SetValue(c, true, null);
+        }
+
         private void BtnSettings_Click(object s, EventArgs e)
         {
             if (new LoginForm().ShowDialog() == DialogResult.OK)
             {
                 new ConfigForm().ShowDialog();
-
-                // 1. Nạp lại cấu hình mới vào biến tĩnh
                 SystemConfig.Apply(ConfigService.Load());
-
             }
         }
 
-        
-        private void SetupTrendButtonsNearChart()
-        {
-            panelTrendButtons.Controls.Clear();
-
-            Button btnTrend1 = CreateMenuButton("TREND R/P/H", Color.White);
-            btnTrend1.Click += (s, e) => {
-                _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Motion;
-                _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
-            };
-
-            Button btnTrend2 = CreateMenuButton("TREND Wind", Color.White);
-            btnTrend2.Click += (s, e) => {
-                _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Wind;
-                _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
-            };
-
-            Button btnZoom = CreateMenuButton("VIEW: 2 Min", Color.LightBlue);
-            btnZoom.Click += (s, e) => {
-                if (_currentViewMinutes == 2.0) { _currentViewMinutes = 20.0; btnZoom.Text = "VIEW: 20 Min"; btnZoom.BackColor = Color.LightSalmon; }
-                else { _currentViewMinutes = 2.0; btnZoom.Text = "VIEW: 2 Min"; btnZoom.BackColor = Color.LightBlue; }
-                _trendControl.SetViewWindow(_currentViewMinutes); // Gọi thẳng Control
-            };
-
-            Button btnToggleSplit = CreateMenuButton("MODE: COMBINED", Color.LightGreen);
-            btnToggleSplit.Width = 150;
-            btnToggleSplit.Click += (s, e) => {
-                _isSeparateTrend = !_isSeparateTrend;
-                btnToggleSplit.Text = _isSeparateTrend ? "MODE: SPLIT" : "MODE: COMBINED";
-                btnToggleSplit.BackColor = _isSeparateTrend ? Color.Yellow : Color.LightGreen;
-                _trendControl.SetMode(_currentTrendMode, _isSeparateTrend); // Cập nhật lại Control
-            };
-
-            panelTrendButtons.Controls.AddRange(new Control[] { btnTrend1, btnTrend2, btnToggleSplit, btnZoom });
-        }
+        // Stubs giữ tương thích Designer
         private void label9_Click(object sender, EventArgs e) { }
         private void lblHeading_Click(object sender, EventArgs e) { }
         private void lblHeaveCycle_Click(object sender, EventArgs e) { }

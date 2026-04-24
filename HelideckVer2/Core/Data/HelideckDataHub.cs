@@ -1,6 +1,5 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using HelideckVer2.Models;
 
 namespace HelideckVer2.Core.Data
 {
@@ -11,68 +10,73 @@ namespace HelideckVer2.Core.Data
 
         public static HelideckDataHub Instance => _instance.Value;
 
-        // Object dùng để lock, chống xung đột luồng khi Ghi và Đọc đồng thời
         private readonly object _lockData = new object();
 
-        // 2. KHO CHỨA DỮ LIỆU THÔ (RAW DATA STORE)
+        // Dữ liệu thô (raw NMEA string) cho DataList / Bảng quét
         private readonly Dictionary<string, (string Value, DateTime? LastUpdate)> _sensorData;
         private readonly Dictionary<string, (string State, DateTime? LastUpdate)> _alarmStatus;
 
-        // 3. KHO CHỨA DỮ LIỆU SỐ (NUMERIC DATA STORE - Cho Chart, Radar)
-        public double Heading { get; private set; }
-        public double WindSpeedMs { get; private set; }
-        public double WindDirDeg { get; private set; }
-        public double RollDeg { get; private set; }
-        public double PitchDeg { get; private set; }
-        public double HeaveCm { get; private set; }
+        // Dữ liệu số cho chart / radar / UI
+        public double Heading      { get; private set; }
+        public double WindSpeedMs  { get; private set; }
+        public double WindDirDeg   { get; private set; }
+        public double RollDeg      { get; private set; }
+        public double PitchDeg     { get; private set; }
+        public double HeaveCm      { get; private set; }
         public double HeavePeriodSec { get; private set; }
 
-        // Constructor private để đảm bảo Singleton
+        // GPS numeric
+        public double  GpsSpeedKnot { get; private set; }
+        public string  GpsLat       { get; private set; } = "NO FIX";
+        public string  GpsLon       { get; private set; } = "NO FIX";
+
         private HelideckDataHub()
         {
-            _sensorData = new Dictionary<string, (string, DateTime?)>();
-            _alarmStatus = new Dictionary<string, (string, DateTime?)>();
+            _sensorData   = new Dictionary<string, (string, DateTime?)>();
+            _alarmStatus  = new Dictionary<string, (string, DateTime?)>();
 
-            // Khởi tạo 4 Task cố định
-            string[] tasks = { "GPS", "WIND", "R/P/H", "HEADING" };
-            foreach (var task in tasks)
+            string[] tasks = { "GPS", "WIND", "R/P/H", "HEADING", "AUX" };
+            foreach (var t in tasks)
             {
-                _sensorData[task] = ("", null);
-                _alarmStatus[task] = ("Normal", null);
+                _sensorData[t]  = ("", null);
+                _alarmStatus[t] = ("Normal", null);
             }
         }
 
-        // ==========================================
-        // 4. CÁC HÀM GHI DỮ LIỆU (WRITE API - Chỉ Service gọi)
-        // ==========================================
+        // ── WRITE API ────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Chỉ lưu chuỗi NMEA RAW phục vụ cho DataList "Bảng quét"
-        /// </summary>
+        /// <summary>Lưu chuỗi NMEA RAW vào bảng quét (DataList).</summary>
         public void UpdateRawString(string taskName, string rawString)
         {
             lock (_lockData)
             {
                 if (_sensorData.ContainsKey(taskName))
-                {
                     _sensorData[taskName] = (rawString, DateTime.Now);
-                }
             }
         }
 
-        /// <summary>
-        /// Cập nhật dữ liệu số MỚI NHẤT cho Chart và Radar (Bảng quét không xài cái này)
-        /// </summary>
-        public void UpdateNumericData(string taskName, double numValue1 = 0, double numValue2 = 0, double numValue3 = 0)
+        /// <summary>Cập nhật dữ liệu số cho chart / radar.</summary>
+        public void UpdateNumericData(string taskName, double v1 = 0, double v2 = 0, double v3 = 0)
         {
             lock (_lockData)
             {
                 switch (taskName)
                 {
-                    case "HEADING": Heading = numValue1; break;
-                    case "WIND": WindSpeedMs = numValue1; WindDirDeg = numValue2; break;
-                    case "R/P/H": RollDeg = numValue1; PitchDeg = numValue2; HeaveCm = numValue3; break;
+                    case "HEADING": Heading     = v1; break;
+                    case "WIND":    WindSpeedMs = v1; WindDirDeg = v2; break;
+                    case "R/P/H":   RollDeg     = v1; PitchDeg   = v2; HeaveCm    = v3; break;
                 }
+            }
+        }
+
+        /// <summary>Cập nhật GPS numeric (tốc độ + vị trí).</summary>
+        public void UpdateGpsData(double speedKnot, string lat, string lon)
+        {
+            lock (_lockData)
+            {
+                GpsSpeedKnot = speedKnot;
+                GpsLat       = lat ?? "NO FIX";
+                GpsLon       = lon ?? "NO FIX";
             }
         }
 
@@ -90,72 +94,71 @@ namespace HelideckVer2.Core.Data
             }
         }
 
-        // ==========================================
-        // 5. CÁC HÀM ĐỌC DỮ LIỆU (READ API - Chỉ UI Form gọi)
-        // ==========================================
+        // ── READ API ─────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Lấy toàn bộ trạng thái dữ liệu hiện tại để hiển thị trên Grid.
-        /// UI Form chỉ cần gọi hàm này 1 lần mỗi giây.
-        /// </summary>
         public Snapshot GetSnapshot()
         {
-            lock (_lockData) // KHÓA ĐỂ ĐẢM BẢO DỮ LIỆU KHÔNG BỊ SỬA LÚC ĐANG ĐỌC
+            lock (_lockData)
             {
-                var snapshot = new Snapshot();
+                var snap = new Snapshot();
                 DateTime now = DateTime.Now;
 
-                // Tự tính toán Age và Stale ngay lúc đọc
                 foreach (var key in _sensorData.Keys)
                 {
-                    var data = _sensorData[key];
+                    var data  = _sensorData[key];
                     var alarm = _alarmStatus[key];
+                    double age = data.LastUpdate.HasValue
+                        ? (now - data.LastUpdate.Value).TotalSeconds
+                        : 999;
 
-                    double age = data.LastUpdate.HasValue ? (now - data.LastUpdate.Value).TotalSeconds : 999;
-                    bool isStale = age > 2.0; // Định nghĩa Stale cứng ở đây
-
-                    snapshot.TaskRows.Add(new SnapshotRow
+                    snap.TaskRows.Add(new SnapshotRow
                     {
-                        TaskName = key,
-                        Value = data.Value,
-                        Age = age,
-                        IsStale = isStale,
+                        TaskName    = key,
+                        Value       = data.Value,
+                        Age         = age,
+                        IsStale     = age > 2.0,
                         AlarmString = alarm.State
                     });
                 }
 
-                // Copy dữ liệu số
-                snapshot.Heading = this.Heading;
-                snapshot.WindSpeedMs = this.WindSpeedMs;
-                snapshot.WindDirDeg = this.WindDirDeg;
-                snapshot.RollDeg = this.RollDeg;
-                snapshot.PitchDeg = this.PitchDeg;
-                snapshot.HeaveCm = this.HeaveCm;
-                snapshot.HeavePeriodSec = this.HeavePeriodSec;
+                snap.Heading       = Heading;
+                snap.WindSpeedMs   = WindSpeedMs;
+                snap.WindDirDeg    = WindDirDeg;
+                snap.RollDeg       = RollDeg;
+                snap.PitchDeg      = PitchDeg;
+                snap.HeaveCm       = HeaveCm;
+                snap.HeavePeriodSec= HeavePeriodSec;
+                snap.GpsSpeedKnot  = GpsSpeedKnot;
+                snap.GpsLat        = GpsLat;
+                snap.GpsLon        = GpsLon;
 
-                return snapshot;
+                return snap;
             }
         }
 
-        // --- CÁC LỚP HỖ TRỢ TRẢ VỀ DỮ LIỆU (DTOs) ---
+        // ── DTOs ─────────────────────────────────────────────────────────────
+
         public class Snapshot
         {
             public List<SnapshotRow> TaskRows { get; set; } = new List<SnapshotRow>();
-            public double Heading { get; set; }
-            public double WindSpeedMs { get; set; }
-            public double WindDirDeg { get; set; }
-            public double RollDeg { get; set; }
-            public double PitchDeg { get; set; }
-            public double HeaveCm { get; set; }
+            public double Heading        { get; set; }
+            public double WindSpeedMs    { get; set; }
+            public double WindDirDeg     { get; set; }
+            public double RollDeg        { get; set; }
+            public double PitchDeg       { get; set; }
+            public double HeaveCm        { get; set; }
             public double HeavePeriodSec { get; set; }
+            public double GpsSpeedKnot   { get; set; }
+            public string GpsLat         { get; set; } = "NO FIX";
+            public string GpsLon         { get; set; } = "NO FIX";
         }
 
         public class SnapshotRow
         {
-            public string TaskName { get; set; }
-            public string Value { get; set; }
-            public double Age { get; set; }
-            public bool IsStale { get; set; }
+            public string TaskName    { get; set; }
+            public string Value       { get; set; }
+            public double Age         { get; set; }
+            public bool   IsStale     { get; set; }
             public string AlarmString { get; set; }
         }
     }

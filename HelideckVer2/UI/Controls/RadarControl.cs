@@ -1,13 +1,11 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using HelideckVer2.UI.Theme;
 
 namespace HelideckVer2.UI.Controls
 {
-    /// <summary>
-    /// Control Radar độc lập. Tự quản lý việc vẽ đồ họa 2D.
-    /// </summary>
     public class RadarControl : UserControl
     {
         private double _heading = 0;
@@ -16,17 +14,16 @@ namespace HelideckVer2.UI.Controls
 
         public RadarControl()
         {
-            this.DoubleBuffered = true; // Bật chống giật hình (Flickering)
-            this.BackColor = Color.FromArgb(240, 240, 240);
-            this.Resize += (s, e) => this.Invalidate(); // Tự vẽ lại khi thay đổi kích thước
+            this.DoubleBuffered = true;
+            this.BackColor = Palette.RadarBg;
+            this.Resize += (s, e) => this.Invalidate();
         }
 
-        // Cổng giao tiếp duy nhất để Form1 ném dữ liệu vào
         public void UpdateRadar(double heading, double windDir)
         {
             _heading = heading;
             _windDir = windDir;
-            this.Invalidate(); // Ra lệnh vẽ lại với dữ liệu mới
+            this.Invalidate();
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -40,19 +37,19 @@ namespace HelideckVer2.UI.Controls
             int radius = (int)(Math.Min(w, h) / 2 * 0.75f);
             if (radius < 20) return;
 
-            using (SolidBrush bgBrush = new SolidBrush(Color.White))
+            using (SolidBrush bgBrush = new SolidBrush(Palette.RadarFace))
                 g.FillEllipse(bgBrush, center.X - radius, center.Y - radius, radius * 2, radius * 2);
-            using (Pen pBorder = new Pen(Color.Gray, 2))
+            using (Pen pBorder = new Pen(Palette.RadarBorder, 2))
                 g.DrawEllipse(pBorder, center.X - radius, center.Y - radius, radius * 2, radius * 2);
 
             float radarFontSize = Math.Max(7f, radius * 0.08f);
 
-            // --- VẼ LƯỚI VÀ SỐ ĐỘ ---
-            using (Pen pGrid = new Pen(Color.FromArgb(180, 200, 220), 1) { DashStyle = DashStyle.Dot })
-            using (Pen pMain = new Pen(Color.LightSlateGray, 2))
+            using (Pen pGrid = new Pen(Palette.RadarGrid, 1) { DashStyle = DashStyle.Dot })
+            using (Pen pMain = new Pen(Palette.RadarTick, 2))
             using (Font font = new Font("Segoe UI", radarFontSize, FontStyle.Bold))
             using (Font fontN = new Font("Segoe UI", radarFontSize * 1.5f, FontStyle.Bold))
-            using (SolidBrush brush = new SolidBrush(Color.DarkSlateGray))
+            using (SolidBrush brush = new SolidBrush(Palette.RadarText))
+            using (SolidBrush brushN = new SolidBrush(Palette.RadarNorth))
             {
                 g.DrawEllipse(pGrid, center.X - radius * 0.66f, center.Y - radius * 0.66f, radius * 1.33f, radius * 1.33f);
                 g.DrawEllipse(pGrid, center.X - radius * 0.33f, center.Y - radius * 0.33f, radius * 0.66f, radius * 0.66f);
@@ -83,39 +80,37 @@ namespace HelideckVer2.UI.Controls
                     }
                 }
                 SizeF sizeN = g.MeasureString("N", fontN);
-                g.DrawString("N", fontN, Brushes.DarkBlue, center.X - (sizeN.Width / 2), center.Y - radius - (radarFontSize * 1.8f) - (sizeN.Height / 2));
+                g.DrawString("N", fontN, brushN, center.X - (sizeN.Width / 2), center.Y - radius - (radarFontSize * 1.8f) - (sizeN.Height / 2));
             }
 
-            // --- 1. VẼ TÀU ---
+            // --- VẼ TÀU ---
             var stateShip = g.Save();
             g.TranslateTransform(center.X, center.Y);
             g.RotateTransform((float)_heading);
 
-            using (Pen pHead = new Pen(Color.DarkGoldenrod, 2) { DashStyle = DashStyle.Dash })
+            using (Pen pHead = new Pen(Palette.RadarHeadLine, 2) { DashStyle = DashStyle.Dash })
                 g.DrawLine(pHead, 0, 0, 0, -radius + 15);
 
             float shipScale = radius / 380f;
             g.ScaleTransform(shipScale, shipScale);
 
-            using (SolidBrush bShip = new SolidBrush(Color.LightGray)) g.FillPolygon(bShip, _shipPoly);
-            using (Pen pShipBorder = new Pen(Color.DimGray, 2)) g.DrawPolygon(pShipBorder, _shipPoly);
+            using (SolidBrush bShip = new SolidBrush(Palette.RadarShipFill)) g.FillPolygon(bShip, _shipPoly);
+            using (Pen pShipBorder = new Pen(Palette.RadarShipBdr, 2)) g.DrawPolygon(pShipBorder, _shipPoly);
             g.Restore(stateShip);
 
-            // --- 2. VẼ MŨI TÊN GIÓ ---
+            // --- VẼ MŨI TÊN GIÓ ---
             var stateWind = g.Save();
             g.TranslateTransform(center.X, center.Y);
             g.RotateTransform((float)_windDir + 180);
 
-            float arrowTipY = radius * 0.75f;
+            float arrowTipY  = radius * 0.75f;
             float arrowBaseY = radius * 0.35f;
-            float headLen = radius * 0.15f;
-            float headWidth = radius * 0.05f;
+            float headLen    = radius * 0.15f;
+            float headWidth  = radius * 0.05f;
 
             float tailThickness = Math.Max(2f, radius * 0.02f);
-            using (Pen pWindTail = new Pen(Color.RoyalBlue, tailThickness))
+            using (Pen pWindTail = new Pen(Palette.RadarWindArrow, tailThickness))
                 g.DrawLine(pWindTail, 0, -arrowBaseY, 0, -arrowTipY + headLen);
-            using (Pen pWindTailBorder = new Pen(Color.White, 1) { DashStyle = DashStyle.Dot })
-                g.DrawLine(pWindTailBorder, 0, -arrowBaseY, 0, -arrowTipY + headLen);
 
             PointF[] arrowHead = {
                 new PointF(0, -arrowTipY),
@@ -123,17 +118,18 @@ namespace HelideckVer2.UI.Controls
                 new PointF(headWidth, -arrowTipY + headLen)
             };
 
-            using (SolidBrush bWind = new SolidBrush(Color.RoyalBlue)) g.FillPolygon(bWind, arrowHead);
-            using (Pen pBorderWind = new Pen(Color.White, 1)) g.DrawPolygon(pBorderWind, arrowHead);
+            using (SolidBrush bWind = new SolidBrush(Palette.RadarWindArrow)) g.FillPolygon(bWind, arrowHead);
+            using (Pen pBorderWind = new Pen(Palette.RadarBorder, 1)) g.DrawPolygon(pBorderWind, arrowHead);
             g.Restore(stateWind);
 
-            // --- 3. BẢNG CHÚ GIẢI ---
             DrawLegend(g, radarFontSize);
         }
 
         private void DrawLegend(Graphics g, float radarFontSize)
         {
             using (Font legendFont = new Font("Segoe UI", Math.Max(8f, radarFontSize * 0.9f), FontStyle.Bold))
+            using (SolidBrush textBrush = new SolidBrush(Palette.RadarText))
+            using (SolidBrush windTextBrush = new SolidBrush(Palette.RadarWindText))
             {
                 float startX = 10f;
                 float startY = 10f;
@@ -142,20 +138,20 @@ namespace HelideckVer2.UI.Controls
                 var stateLegendShip = g.Save();
                 g.TranslateTransform(startX + 15, startY + (legendFont.Height / 2));
                 g.ScaleTransform(0.07f, 0.07f);
-                using (SolidBrush bLegShip = new SolidBrush(Color.LightGray)) g.FillPolygon(bLegShip, _shipPoly);
-                using (Pen pLegShip = new Pen(Color.DimGray, 25)) g.DrawPolygon(pLegShip, _shipPoly);
+                using (SolidBrush bLegShip = new SolidBrush(Palette.RadarShipFill)) g.FillPolygon(bLegShip, _shipPoly);
+                using (Pen pLegShip = new Pen(Palette.RadarShipBdr, 25)) g.DrawPolygon(pLegShip, _shipPoly);
                 g.Restore(stateLegendShip);
 
-                g.DrawString("Ship Heading", legendFont, Brushes.DimGray, startX + 35, startY);
+                g.DrawString("Ship Heading", legendFont, textBrush, startX + 35, startY);
 
                 float windY = startY + lineSpacing;
                 var stateLegendWind = g.Save();
                 g.TranslateTransform(startX + 15, windY + (legendFont.Height / 2));
                 PointF[] miniArrow = { new PointF(0, -7), new PointF(-6, 7), new PointF(6, 7) };
-                using (SolidBrush bLegWind = new SolidBrush(Color.RoyalBlue)) g.FillPolygon(bLegWind, miniArrow);
+                using (SolidBrush bLegWind = new SolidBrush(Palette.RadarWindArrow)) g.FillPolygon(bLegWind, miniArrow);
                 g.Restore(stateLegendWind);
 
-                g.DrawString("Wind Direction", legendFont, Brushes.RoyalBlue, startX + 35, windY);
+                g.DrawString("Wind Direction", legendFont, windTextBrush, startX + 35, windY);
             }
         }
     }

@@ -1,159 +1,215 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Windows.Forms;
 
 namespace HelideckVer2
 {
+    /// <summary>
+    /// Bảng quét thô – hiển thị live raw NMEA data từng cổng COM.
+    /// Cột: STT | COM | TASK | BAUD | EXPECTED HEADER | RAW DATA (last) | AGE | STATUS
+    /// </summary>
     public partial class DataListForm : Form
     {
-        private DataGridView _dgvDataList;
+        private DataGridView  _dgvRaw;
         private System.Windows.Forms.Timer _updateTimer;
 
-        // Cấu hình cố định cho 4 dòng
-        private string[] _tasks = { "GPS", "WIND", "R/P/H", "HEADING" };
-        private string[] _ports = { "COM1", "COM2", "COM3", "COM4" };
-        private string[] _units = { "kn", "m/s,°", "°, °, cm", "°" };
+        // Cấu hình tĩnh từ ConfigForm
+        private static readonly string[] _expectedHeaders = {
+            "$GPGGA / $GPVTG",
+            "$WIMWV",
+            "$CNTB",
+            "$HEHDT",
+            "-"
+        };
+        private static readonly string[] _dataDesc = {
+            "GPS Position & Speed Over Ground",
+            "Wind Speed and Angle",
+            "Roll / Pitch / Heave",
+            "Heading, True",
+            "Auxiliary data"
+        };
 
         public DataListForm()
         {
             InitializeComponent();
-            SetupUI();
+            BuildUI();
 
-            // Timer quét dữ liệu từ Form1 mỗi giây
-            _updateTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-            _updateTimer.Tick += UpdateData;
+            _updateTimer = new System.Windows.Forms.Timer { Interval = 500 };
+            _updateTimer.Tick += RefreshData;
             _updateTimer.Start();
+
+            RefreshData(null, null); // Hiện ngay lập tức
         }
 
-        private void SetupUI()
+        private void BuildUI()
         {
-            this.Text = "LIVE DATA LIST";
-            // Giữ kích thước cửa sổ rộng để dữ liệu không bị che
-            this.Size = new Size(1100, 350);
-            this.StartPosition = FormStartPosition.CenterParent;
+            this.Text            = "BẢNG QUÉT THÔ – RAW COM SCAN";
+            this.Size            = new Size(1200, 340);
+            this.MinimumSize     = new Size(900, 280);
+            this.StartPosition   = FormStartPosition.CenterParent;
+            this.BackColor       = Color.FromArgb(20, 30, 48);
 
-            _dgvDataList = new DataGridView
+            var titleLbl = new Label
             {
-                Dock = DockStyle.Fill,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                // 1. VÔ HIỆU HÓA tự động chỉnh chiều cao dòng (Cố định chiều cao dòng)
-                AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None,
-                BackgroundColor = Color.White,
-                EnableHeadersVisualStyles = false,
-                AllowUserToAddRows = false,
-                ReadOnly = true,
-                RowHeadersVisible = false,
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect
+                Text      = "RAW DATA SCANNER  –  Live NMEA input per COM port",
+                Dock      = DockStyle.Top,
+                Height    = 34,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font      = new Font("Segoe UI", 11, FontStyle.Bold),
+                BackColor = Color.FromArgb(30, 50, 80),
+                ForeColor = Color.White
             };
 
-            _dgvDataList.ColumnHeadersDefaultCellStyle.BackColor = Color.Navy;
-            _dgvDataList.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
-            _dgvDataList.DefaultCellStyle.ForeColor = Color.Black;
-            _dgvDataList.DefaultCellStyle.SelectionBackColor = Color.LightBlue;
-            _dgvDataList.DefaultCellStyle.SelectionForeColor = Color.Black;
-            _dgvDataList.DefaultCellStyle.Font = new Font("Arial", 11);
-
-            // 2. VÔ HIỆU HÓA tự động xuống hàng (Dữ liệu sẽ luôn nằm trên 1 dòng)
-            _dgvDataList.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
-
-            _dgvDataList.Columns.Add("Task", "TASK NAME");
-            _dgvDataList.Columns.Add("Port", "PORT");
-            _dgvDataList.Columns.Add("Value", "VALUE");
-            _dgvDataList.Columns.Add("Unit", "UNIT");
-            _dgvDataList.Columns.Add("Age", "AGE(s)");
-            _dgvDataList.Columns.Add("Status", "STATUS");
-            _dgvDataList.Columns.Add("Limit", "LIMIT");
-            _dgvDataList.Columns.Add("Alarm", "ALARM");
-
-            // Tỷ lệ cột mặc định (Để đảm bảo hiển thị đủ Value/Limit dài)
-            _dgvDataList.Columns["Task"].FillWeight = 80;
-            _dgvDataList.Columns["Port"].FillWeight = 60;
-            _dgvDataList.Columns["Value"].FillWeight = 200;
-            _dgvDataList.Columns["Unit"].FillWeight = 70;
-            _dgvDataList.Columns["Age"].FillWeight = 60;
-            _dgvDataList.Columns["Status"].FillWeight = 70;
-            _dgvDataList.Columns["Limit"].FillWeight = 160;
-            _dgvDataList.Columns["Alarm"].FillWeight = 120;
-
-            // Khởi tạo 4 dòng trống
-            for (int i = 0; i < 4; i++)
+            _dgvRaw = new DataGridView
             {
-                _dgvDataList.Rows.Add(_tasks[i], _ports[i], "", _units[i], "", "WAIT", "", "Normal");
+                Dock                    = DockStyle.Fill,
+                AutoSizeColumnsMode     = DataGridViewAutoSizeColumnsMode.None,
+                AutoSizeRowsMode        = DataGridViewAutoSizeRowsMode.None,
+                BackgroundColor         = Color.FromArgb(18, 26, 40),
+                GridColor               = Color.FromArgb(50, 70, 100),
+                BorderStyle             = BorderStyle.None,
+                CellBorderStyle         = DataGridViewCellBorderStyle.SingleHorizontal,
+                EnableHeadersVisualStyles = false,
+                AllowUserToAddRows      = false,
+                ReadOnly                = true,
+                RowHeadersVisible       = false,
+                SelectionMode           = DataGridViewSelectionMode.FullRowSelect,
+                ColumnHeadersHeight     = 32,
+                RowTemplate             = { Height = 38 }
+            };
+
+            // Header style
+            _dgvRaw.ColumnHeadersDefaultCellStyle.BackColor  = Color.FromArgb(40, 70, 110);
+            _dgvRaw.ColumnHeadersDefaultCellStyle.ForeColor  = Color.White;
+            _dgvRaw.ColumnHeadersDefaultCellStyle.Font       = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+            _dgvRaw.ColumnHeadersDefaultCellStyle.Alignment  = DataGridViewContentAlignment.MiddleCenter;
+
+            // Cell style
+            _dgvRaw.DefaultCellStyle.BackColor         = Color.FromArgb(22, 34, 54);
+            _dgvRaw.DefaultCellStyle.ForeColor         = Color.FromArgb(200, 220, 255);
+            _dgvRaw.DefaultCellStyle.Font              = new Font("Consolas", 9.5f);
+            _dgvRaw.DefaultCellStyle.SelectionBackColor= Color.FromArgb(50, 80, 130);
+            _dgvRaw.DefaultCellStyle.SelectionForeColor= Color.White;
+            _dgvRaw.DefaultCellStyle.WrapMode          = DataGridViewTriState.False;
+
+            // Columns
+            AddCol("STT",       "STT",             45,  DataGridViewContentAlignment.MiddleCenter);
+            AddCol("COM",       "COM",             65,  DataGridViewContentAlignment.MiddleCenter);
+            AddCol("Task",      "TASK / IN-OUT",   100, DataGridViewContentAlignment.MiddleCenter);
+            AddCol("Baud",      "BAUD RATE",       85,  DataGridViewContentAlignment.MiddleCenter);
+            AddCol("Header",    "EXPECTED HEADER", 155, DataGridViewContentAlignment.MiddleCenter);
+            AddCol("RawData",   "RAW DATA (last received)", 0, DataGridViewContentAlignment.MiddleLeft); // auto-fill
+            AddCol("Age",       "AGE (s)",         70,  DataGridViewContentAlignment.MiddleCenter);
+            AddCol("Status",    "STATUS",          80,  DataGridViewContentAlignment.MiddleCenter);
+
+            // Cột RawData tự giãn
+            _dgvRaw.Columns["RawData"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+
+            // Tạo 5 dòng
+            var tasks  = ConfigForm.Tasks;
+            for (int i = 0; i < 5; i++)
+            {
+                string port    = i < tasks.Count ? tasks[i].PortName  : $"COM{i+1}";
+                string task    = i < tasks.Count ? tasks[i].TaskName  : "-";
+                int    baud    = i < tasks.Count ? tasks[i].BaudRate  : 0;
+                _dgvRaw.Rows.Add(
+                    i + 1,
+                    port,
+                    task,
+                    baud > 0 ? baud.ToString() : "-",
+                    _expectedHeaders[i],
+                    "",
+                    "",
+                    "WAIT"
+                );
             }
 
-            this.Controls.Add(_dgvDataList);
+            this.Controls.Add(_dgvRaw);
+            this.Controls.Add(titleLbl);
+            titleLbl.BringToFront();
         }
 
-        private void UpdateData(object sender, EventArgs e)
+        private void AddCol(string name, string header, int width, DataGridViewContentAlignment align)
         {
-            if (_dgvDataList == null || _dgvDataList.IsDisposed) return;
-
-            // 1. CHỤP LẤY BẢN SAO DỮ LIỆU TỪ DATAHUB (Cực kỳ an toàn, không lo đụng độ luồng)
-            var snapshot = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
-
-            for (int i = 0; i < 4; i++)
+            var col = new DataGridViewTextBoxColumn
             {
-                string taskName = _tasks[i];
+                Name            = name,
+                HeaderText      = header,
+                ReadOnly        = true,
+                SortMode        = DataGridViewColumnSortMode.NotSortable,
+                DefaultCellStyle = { Alignment = align }
+            };
+            if (width > 0) col.Width = width;
+            _dgvRaw.Columns.Add(col);
+        }
 
-                // Tìm dữ liệu của Task này trong snapshot
-                var rowData = snapshot.TaskRows.Find(r => r.TaskName == taskName);
+        private void RefreshData(object sender, EventArgs e)
+        {
+            if (_dgvRaw == null || _dgvRaw.IsDisposed) return;
+
+            var snap  = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
+            var tasks = ConfigForm.Tasks;
+
+            for (int i = 0; i < _dgvRaw.Rows.Count && i < 5; i++)
+            {
+                string taskName = i < tasks.Count ? tasks[i].TaskName : "-";
+                string portName = i < tasks.Count ? tasks[i].PortName : $"COM{i+1}";
+                int    baud     = i < tasks.Count ? tasks[i].BaudRate : 0;
+
+                // Cập nhật cổng và baud (có thể thay đổi sau khi cấu hình)
+                _dgvRaw.Rows[i].Cells["COM"].Value  = portName;
+                _dgvRaw.Rows[i].Cells["Baud"].Value = baud > 0 ? baud.ToString() : "-";
+
+                var rowData = snap.TaskRows.Find(r => r.TaskName == taskName);
                 if (rowData == null) continue;
 
-                // Gán Giá Trị
-                _dgvDataList.Rows[i].Cells["Value"].Value = rowData.Value;
+                // Raw data – cắt bớt nếu quá dài để hiển thị
+                string raw = rowData.Value ?? "";
+                _dgvRaw.Rows[i].Cells["RawData"].Value = raw.Length > 120 ? raw.Substring(0, 120) + "…" : raw;
 
-                // Gán Limit trực tiếp từ SystemConfig
-                if (taskName == "WIND")
-                    _dgvDataList.Rows[i].Cells["Limit"].Value = $"{HelideckVer2.Models.SystemConfig.WindMax:0.0}";
-                else if (taskName == "R/P/H")
-                    _dgvDataList.Rows[i].Cells["Limit"].Value = $"R:{HelideckVer2.Models.SystemConfig.RMax:0.0} P:{HelideckVer2.Models.SystemConfig.PMax:0.0} H:{HelideckVer2.Models.SystemConfig.HMax:0.0}";
-                else
-                    _dgvDataList.Rows[i].Cells["Limit"].Value = "N/A";
+                // Age
+                string ageStr = rowData.Age > 900 ? "" : rowData.Age.ToString("0.0");
+                _dgvRaw.Rows[i].Cells["Age"].Value = ageStr;
 
-                // Rút gọn Alarm
-                string rawAlarm = rowData.AlarmString ?? "Normal";
-                string shortAlarm = rawAlarm.Replace("ROLL", "R")
-                                            .Replace("PITCH", "P")
-                                            .Replace("HEAVE", "H");
-                _dgvDataList.Rows[i].Cells["Alarm"].Value = shortAlarm;
-
-                // Xử lý Age
-                _dgvDataList.Rows[i].Cells["Age"].Value = rowData.Age > 900 ? "" : rowData.Age.ToString("0.0");
-
-                // Logic Màu Status
+                // Status + màu
+                Color rowFg;
+                string status;
                 if (rowData.Age > 900)
                 {
-                    _dgvDataList.Rows[i].Cells["Status"].Value = "WAIT";
-                    _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.Gray;
+                    status = "WAIT";
+                    rowFg  = Color.Gray;
                 }
                 else if (rowData.IsStale)
                 {
-                    _dgvDataList.Rows[i].Cells["Status"].Value = "STALE";
-                    _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.OrangeRed;
+                    status = "LOST";
+                    rowFg  = Color.OrangeRed;
                 }
                 else
                 {
-                    _dgvDataList.Rows[i].Cells["Status"].Value = "OK";
-                    _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.Green;
+                    status = "OK";
+                    rowFg  = Color.FromArgb(100, 220, 120);
                 }
 
-                // Logic Màu Alarm
-                if (shortAlarm != "Normal")
+                _dgvRaw.Rows[i].Cells["Status"].Value = status;
+                _dgvRaw.Rows[i].DefaultCellStyle.ForeColor = rowFg;
+
+                // Row background highlight nếu có alarm
+                string alarm = rowData.AlarmString ?? "Normal";
+                if (alarm != "Normal")
                 {
-                    _dgvDataList.Rows[i].Cells["Alarm"].Style.ForeColor = Color.Red;
-                    _dgvDataList.Rows[i].Cells["Status"].Style.ForeColor = Color.Red;
+                    _dgvRaw.Rows[i].DefaultCellStyle.BackColor = Color.FromArgb(80, 20, 20);
+                    _dgvRaw.Rows[i].DefaultCellStyle.ForeColor = Color.OrangeRed;
                 }
-                else
+                else if (status == "OK")
                 {
-                    _dgvDataList.Rows[i].Cells["Alarm"].Style.ForeColor = Color.Green;
+                    _dgvRaw.Rows[i].DefaultCellStyle.BackColor = Color.FromArgb(22, 34, 54);
                 }
             }
-
-            _dgvDataList.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.DisplayedCells);
         }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            _updateTimer.Stop();
+            _updateTimer?.Stop();
             base.OnFormClosing(e);
         }
     }

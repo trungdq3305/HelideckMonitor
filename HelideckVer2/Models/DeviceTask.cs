@@ -12,7 +12,7 @@ namespace HelideckVer2.Models
         public string TaskName { get; set; }
         public string PortName { get; set; }
 
-        [JsonIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
         public int BaudRate { get; set; }
     }
 }
