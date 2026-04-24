@@ -10,6 +10,7 @@ namespace HelideckVer2
     {
         private NumericUpDown numWind, numRoll, numPitch, numHeave;
         private DataGridView dgvComConfig;
+        private CheckBox chkSimulationMode;
 
         public static List<DeviceTask> Tasks = new List<DeviceTask>
         {
@@ -56,9 +57,50 @@ namespace HelideckVer2
         private void SetupUI()
         {
             this.Text = "SYSTEM CONFIGURATION";
-            this.Size = new Size(500, 400);
 
-            TabControl tabConfig = new TabControl { Dock = DockStyle.Top, Height = 300 };
+            // Dùng ClientSize thay vì Size để không gian bên trong luôn đảm bảo đúng 500x380, bất chấp viền cửa sổ dày/mỏng
+            this.ClientSize = new Size(500, 380);
+            this.FormBorderStyle = FormBorderStyle.FixedDialog; // Khóa resize để form không bị kéo giãn lung tung
+            this.MaximizeBox = false;
+
+            // 1. TẠO PANEL CHỨA NÚT BẤM VÀ CHECKBOX (Neo cố định ở đáy)
+            Panel pnlBottom = new Panel()
+            {
+                Dock = DockStyle.Bottom,
+                Height = 60,
+                BackColor = Color.WhiteSmoke,
+                Padding = new Padding(10) // Cách lề 10px đều cả 4 phía cho đẹp
+            };
+
+            chkSimulationMode = new CheckBox()
+            {
+                Text = "Enable Simulation Mode (Fake Data)",
+                AutoSize = true,
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                ForeColor = Color.Blue,
+                Dock = DockStyle.Left, // Tự động bám chặt lề trái
+                Padding = new Padding(10, 8, 0, 0) // Đẩy chữ xuống một chút cho cân bằng với nút
+            };
+
+            Button btnSave = new Button()
+            {
+                Text = "SAVE and EXIT",
+                Width = 140,
+                // Không cần set Height nữa vì Dock.Right sẽ tự ăn theo chiều cao của Panel trừ đi Padding
+                BackColor = Color.LightGreen,
+                Dock = DockStyle.Right // Tự động bám chặt lề phải (Chắc chắn không bao giờ bị mất)
+            };
+            btnSave.Click += BtnSave_Click;
+
+            // Phải Add CheckBox trước, Button sau (hoặc ngược lại) để Dock hoạt động đúng
+            pnlBottom.Controls.Add(chkSimulationMode);
+            pnlBottom.Controls.Add(btnSave);
+
+            // 2. TẠO TAB CONTROL (Tự động lấp đầy khoảng không gian còn lại ở trên)
+            TabControl tabConfig = new TabControl
+            {
+                Dock = DockStyle.Fill
+            };
 
             TabPage tabAlarm = new TabPage("Alarm Limit") { BackColor = Color.White };
             SetupAlarmTab(tabAlarm);
@@ -68,13 +110,13 @@ namespace HelideckVer2
             SetupComTab(tabCom);
             tabConfig.TabPages.Add(tabCom);
 
+            // 3. THÊM CÁC THÀNH PHẦN VÀO FORM (Thứ tự thêm rất quan trọng)
             this.Controls.Add(tabConfig);
+            this.Controls.Add(pnlBottom);
 
-            Button btnSave = new Button() { Text = "SAVE and EXIT", Top = 310, Left = 170, Width = 150, Height = 40, BackColor = Color.LightGreen };
-            btnSave.Click += BtnSave_Click;
-            this.Controls.Add(btnSave);
+            // Đảm bảo Panel chứa nút bấm luôn nổi lên trên cùng, không bị Tab che mất
+            pnlBottom.BringToFront();
         }
-
         private void SetupAlarmTab(TabPage tab)
         {
             int y = 20;
@@ -137,6 +179,9 @@ namespace HelideckVer2
             numPitch.Value = (decimal)SystemConfig.PMax;
             numHeave.Value = (decimal)SystemConfig.HMax;
 
+            // --- ĐỌC GIÁ TRỊ LÊN CHECKBOX ---
+            chkSimulationMode.Checked = SystemConfig.IsSimulationMode;
+
             dgvComConfig.Rows.Clear();
             foreach (var t in Tasks)
             {
@@ -151,6 +196,9 @@ namespace HelideckVer2
             SystemConfig.RMax = (double)numRoll.Value;
             SystemConfig.PMax = (double)numPitch.Value;
             SystemConfig.HMax = (double)numHeave.Value;
+
+            // --- LƯU TRẠNG THÁI CHECKBOX VÀO SYSTEM CONFIG ---
+            SystemConfig.IsSimulationMode = chkSimulationMode.Checked;
 
             foreach (DataGridViewRow row in dgvComConfig.Rows)
             {
@@ -169,6 +217,9 @@ namespace HelideckVer2
             saveCfg.Tasks = Tasks;
 
             HelideckVer2.Services.ConfigService.Save(saveCfg);
+
+            // Cảnh báo người dùng cần khởi động lại để đổi chế độ COM / Simulator
+            MessageBox.Show("Configuration saved!\n\nPlease RESTART the application to apply Simulation Mode changes.", "Notification", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             MessageBox.Show("Configuration saved!", "Notification");
             this.DialogResult = DialogResult.OK;

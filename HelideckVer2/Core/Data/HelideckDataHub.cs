@@ -4,14 +4,8 @@ using HelideckVer2.Models;
 
 namespace HelideckVer2.Core.Data
 {
-    /// <summary>
-    /// KHO DỮ LIỆU TRUNG TÂM (CENTRALIZED DATA HUB)
-    /// Sử dụng pattern Singleton, đảm bảo Thread-safe 100% khi chạy thực tế.
-    /// Mọi Form, Service đều đọc/ghi dữ liệu qua đây.
-    /// </summary>
     public class HelideckDataHub
     {
-        // 1. Singleton Instance: Chỉ có 1 instance duy nhất trong toàn app
         private static readonly Lazy<HelideckDataHub> _instance =
             new Lazy<HelideckDataHub>(() => new HelideckDataHub());
 
@@ -21,7 +15,6 @@ namespace HelideckVer2.Core.Data
         private readonly object _lockData = new object();
 
         // 2. KHO CHỨA DỮ LIỆU THÔ (RAW DATA STORE)
-        // Chúng ta lưu DateTime? thay vì Age(s) để tự tính toán lúc đọc
         private readonly Dictionary<string, (string Value, DateTime? LastUpdate)> _sensorData;
         private readonly Dictionary<string, (string State, DateTime? LastUpdate)> _alarmStatus;
 
@@ -54,23 +47,31 @@ namespace HelideckVer2.Core.Data
         // ==========================================
 
         /// <summary>
-        /// Cập nhật giá trị hiển thị thô (cho Data List) và số liệu số (cho Chart/Radar)
+        /// Chỉ lưu chuỗi NMEA RAW phục vụ cho DataList "Bảng quét"
         /// </summary>
-        public void UpdateSensorData(string taskName, string displayValue, double numValue1 = 0, double numValue2 = 0, double numValue3 = 0)
+        public void UpdateRawString(string taskName, string rawString)
         {
-            lock (_lockData) // KHÓA ĐỂ ĐẢM BẢO AN TOÀN LUỒNG
+            lock (_lockData)
             {
                 if (_sensorData.ContainsKey(taskName))
                 {
-                    _sensorData[taskName] = (displayValue, DateTime.Now);
+                    _sensorData[taskName] = (rawString, DateTime.Now);
+                }
+            }
+        }
 
-                    // Cập nhật dữ liệu số dựa trên TaskName
-                    switch (taskName)
-                    {
-                        case "HEADING": Heading = numValue1; break;
-                        case "WIND": WindSpeedMs = numValue1; WindDirDeg = numValue2; break;
-                        case "R/P/H": RollDeg = numValue1; PitchDeg = numValue2; HeaveCm = numValue3; break;
-                    }
+        /// <summary>
+        /// Cập nhật dữ liệu số MỚI NHẤT cho Chart và Radar (Bảng quét không xài cái này)
+        /// </summary>
+        public void UpdateNumericData(string taskName, double numValue1 = 0, double numValue2 = 0, double numValue3 = 0)
+        {
+            lock (_lockData)
+            {
+                switch (taskName)
+                {
+                    case "HEADING": Heading = numValue1; break;
+                    case "WIND": WindSpeedMs = numValue1; WindDirDeg = numValue2; break;
+                    case "R/P/H": RollDeg = numValue1; PitchDeg = numValue2; HeaveCm = numValue3; break;
                 }
             }
         }

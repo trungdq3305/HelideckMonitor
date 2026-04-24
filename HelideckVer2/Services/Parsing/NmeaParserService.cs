@@ -3,28 +3,45 @@ using System.Globalization;
 
 namespace HelideckVer2.Services.Parsing
 {
-    /// <summary>
-    /// Chuyên gia đọc và dịch chuỗi NMEA từ Cảng COM.
-    /// Không chứa bất kỳ giao diện (UI) hay lưu trữ nào.
-    /// </summary>
     public class NmeaParserService
     {
         public double HeaveArm { get; set; } = 10.0;
 
-        // Định nghĩa các Event báo hiệu khi dịch xong 1 loại dữ liệu
         public event Action<double> OnHeadingParsed;
-        public event Action<double, double> OnWindParsed; // Speed, Dir
-        public event Action<double, double, double> OnMotionParsed; // Roll, Pitch, Heave
-        public event Action<string, string> OnPositionParsed; // formatted Lat, Lon
-        public event Action<double> OnSpeedParsed; // knot
+        public event Action<double, double> OnWindParsed;
+        public event Action<double, double, double> OnMotionParsed;
+        public event Action<string, string> OnPositionParsed;
+        public event Action<double> OnSpeedParsed;
+
+        // HÀM KIỂM TRA CHECKSUM CHUẨN CÔNG NGHIỆP
+        private bool IsValidNmeaChecksum(string sentence)
+        {
+            // Lọc Full Header: Phải có $, *, và đủ độ dài tối thiểu
+            if (string.IsNullOrWhiteSpace(sentence) || sentence.Length < 4) return false;
+            if (sentence[0] != '$') return false;
+
+            int asteriskIndex = sentence.IndexOf('*');
+            if (asteriskIndex < 0 || asteriskIndex + 3 > sentence.Length) return false;
+
+            string dataToCalculate = sentence.Substring(1, asteriskIndex - 1);
+            string providedChecksum = sentence.Substring(asteriskIndex + 1, 2);
+
+            int calculatedChecksum = 0;
+            foreach (char c in dataToCalculate)
+            {
+                calculatedChecksum ^= (byte)c; // Thuật toán XOR mã ASCII
+            }
+
+            return calculatedChecksum.ToString("X2").Equals(providedChecksum, StringComparison.OrdinalIgnoreCase);
+        }
 
         public void Parse(string portName, string data)
         {
             try
             {
-                if (string.IsNullOrEmpty(data) || !data.StartsWith("$")) return;
+                // 1. KIỂM TRA TOÀN VẸN GÓI TIN (DATA INTEGRITY)
+                if (!IsValidNmeaChecksum(data)) return; // Sai checksum -> Nhiễu -> Vứt bỏ ngay lập tức
 
-                // Cắt bỏ phần Checksum sau dấu *
                 int starIndex = data.IndexOf('*');
                 if (starIndex > -1) data = data.Substring(0, starIndex);
 
@@ -32,7 +49,7 @@ namespace HelideckVer2.Services.Parsing
                 var culture = CultureInfo.InvariantCulture;
                 var style = NumberStyles.Any;
 
-                // 1. HEADING ($HEHDT)
+                // 2. HEADING ($HEHDT)
                 if (p[0].EndsWith("HDT") && p.Length >= 2)
                 {
                     if (double.TryParse(p[1], style, culture, out double heading))
@@ -40,7 +57,7 @@ namespace HelideckVer2.Services.Parsing
                     return;
                 }
 
-                // 2. WIND ($WIMWV)
+                // 3. WIND ($WIMWV)
                 if (p[0].EndsWith("MWV") && p.Length >= 4)
                 {
                     if (double.TryParse(p[1], style, culture, out double wDir) &&
@@ -49,7 +66,7 @@ namespace HelideckVer2.Services.Parsing
                     return;
                 }
 
-                // 3. MOTION ($CNTB hoặc $PRDID)
+                // 4. MOTION ($CNTB hoặc $PRDID)
                 if ((p[0].EndsWith("CNTB") && p.Length >= 4) || (p[0] == "$PRDID" && p.Length >= 3))
                 {
                     double r = 0, pi = 0, h = 0;
@@ -77,7 +94,7 @@ namespace HelideckVer2.Services.Parsing
                     return;
                 }
 
-                // 4. POSITION ($GPGGA)
+                // 5. POSITION ($GPGGA)
                 if (p[0].EndsWith("GGA") && p.Length >= 6)
                 {
                     string lat = p[2], latD = p[3], lon = p[4], lonD = p[5];
@@ -94,7 +111,7 @@ namespace HelideckVer2.Services.Parsing
                     return;
                 }
 
-                // 5. SPEED ($GPVTG)
+                // 6. SPEED ($GPVTG)
                 if (p[0] == "$GPVTG")
                 {
                     double k = TryGetNumberAfterToken(p, "N");
@@ -105,7 +122,6 @@ namespace HelideckVer2.Services.Parsing
             catch { /* Bỏ qua các chuỗi rác, không làm treo máy */ }
         }
 
-        // Hàm hỗ trợ tìm số trong chuỗi NMEA
         private double TryGetNumberAfterToken(string[] p, string t)
         {
             for (int i = 0; i < p.Length - 1; i++)

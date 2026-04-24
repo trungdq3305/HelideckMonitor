@@ -2,10 +2,6 @@
 
 namespace HelideckVer2.Services
 {
-    /// <summary>
-    /// Động cơ tạo dữ liệu giả lập để test.
-    /// Hoàn toàn độc lập, tách biệt khỏi Form1.
-    /// </summary>
     public class SimulationEngine
     {
         private System.Windows.Forms.Timer _simTimer;
@@ -33,14 +29,25 @@ namespace HelideckVer2.Services
                 double heave = 30.0 * Math.Sin(_simTimeCounter * 2 * Math.PI / 5.0) + (rnd.NextDouble() * 0.2 - 0.1);
                 double heading = 180.0 + (rnd.NextDouble() * 4 - 2);
 
-                // Giả lập như đang đọc từ COM port và ném dữ liệu đi
-                _onDataGenerated?.Invoke("COM1", $"$GPGGA,083226.00,{lat},N,{lon},E,1,08,1.0,10.0,M,0.0,M,,*XX");
-                _onDataGenerated?.Invoke("COM1", $"$GPVTG,360.0,T,348.7,M,0.0,N,{speed.ToString("0.0", ci)},K*XX");
-                _onDataGenerated?.Invoke("COM2", $"$WIMWV,{windDir.ToString("0.0", ci)},R,{windSpeed.ToString("0.0", ci)},M,A*XX");
-                _onDataGenerated?.Invoke("COM3", $"$CNTB,{roll.ToString("0.00", ci)},{pitch.ToString("0.00", ci)},{heave.ToString("0.0", ci)}");
-                _onDataGenerated?.Invoke("COM4", $"$HEHDT,{heading.ToString("0.0", ci)},T*XX");
+                // Gửi kèm Checksum THẬT để lọt qua màng lọc khắt khe của Parser
+                _onDataGenerated?.Invoke("COM1", AppendChecksum($"$GPGGA,083226.00,{lat},N,{lon},E,1,08,1.0,10.0,M,0.0,M,,"));
+                _onDataGenerated?.Invoke("COM1", AppendChecksum($"$GPVTG,360.0,T,348.7,M,0.0,N,{speed.ToString("0.0", ci)},K"));
+                _onDataGenerated?.Invoke("COM2", AppendChecksum($"$WIMWV,{windDir.ToString("0.0", ci)},R,{windSpeed.ToString("0.0", ci)},M,A"));
+                _onDataGenerated?.Invoke("COM3", AppendChecksum($"$CNTB,{roll.ToString("0.00", ci)},{pitch.ToString("0.00", ci)},{heave.ToString("0.0", ci)}"));
+                _onDataGenerated?.Invoke("COM4", AppendChecksum($"$HEHDT,{heading.ToString("0.0", ci)},T"));
             };
             _simTimer.Start();
+        }
+
+        // HÀM TẠO CHECKSUM CHO DỮ LIỆU FAKE
+        private string AppendChecksum(string sentence)
+        {
+            int checksum = 0;
+            for (int i = 1; i < sentence.Length; i++)
+            {
+                checksum ^= Convert.ToByte(sentence[i]);
+            }
+            return sentence + "*" + checksum.ToString("X2");
         }
 
         public void Stop()

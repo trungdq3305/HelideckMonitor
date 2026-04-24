@@ -70,6 +70,9 @@ namespace HelideckVer2
         private DateTime _lastGpsUIUpdate = DateTime.MinValue;
 
         private HelideckVer2.UI.Controls.TrendChartControl _trendControl;
+
+        private string _currentLat = "NO FIX";
+        private string _currentLon = "NO FIX";
         // ==========================================
         // 3. CONSTRUCTOR
         // ==========================================
@@ -213,72 +216,49 @@ namespace HelideckVer2
         // ==========================================
         // CÁC HÀM XỬ LÝ SỰ KIỆN TỪ NMEA PARSER
         // ==========================================
+        
         private void HandleHeading(double heading)
         {
-            this.Invoke(new Action(() => {
-                _headingDeg = heading; 
-                HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateSensorData("HEADING", $"{heading:0.0}", heading);
-
-                DateTime now = DateTime.Now;
-                if ((now - _lastGpsUIUpdate).TotalMilliseconds >= 250)
-                {
-                    lblHeading.Text = $"{heading:0.0}°";
-                    _lastGpsUIUpdate = now;
-                }
-                _radarControl.UpdateRadar(_headingDeg, _windDirDeg);
-            }));
+            _headingDeg = heading;
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("HEADING", heading);
         }
 
         private void HandleWind(double wSpeed, double wDir)
         {
-            _trendControl.PushWindData(wSpeed, wDir);
-            this.Invoke(new Action(() => {
-                _windSpeedMs = wSpeed; _windDirDeg = wDir; 
-                HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateSensorData("WIND", $"{wSpeed:0.0} / {wDir:0}", wSpeed, wDir);
-
-                _windTag.Update(wSpeed);
-                _alarmEngine.Evaluate();
-
-                DateTime now = DateTime.Now;
-                
-
-                if ((now - _lastWindUIUpdate).TotalMilliseconds >= 250)
-                {
-                    lblWindSpeed.Text = $"{wSpeed:0.0} m/s";
-                    lblWindRelated.Text = $"{wDir:0}°";
-                    _lastWindUIUpdate = now;
-                }
-                _radarControl.UpdateRadar(_headingDeg, _windDirDeg);
-            }));
+            _windSpeedMs = wSpeed; _windDirDeg = wDir;
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("WIND", wSpeed, wDir);
+            _windTag.Update(wSpeed);
         }
 
         private void HandleMotion(double r, double p, double h)
         {
-            this.Invoke(new Action(() => {
-                DisplayMotionData(r + _rollOffset, p + _pitchOffset, h);
-            }));
+            double roll = r + _rollOffset;
+            double pitch = p + _pitchOffset;
+
+            // Lưu biến để dùng ở nơi khác
+            _rollDeg = roll;
+            _pitchDeg = pitch;
+            _heaveCm = h;
+
+            // Ghi vào DataHub
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("R/P/H", Math.Abs(roll), Math.Abs(pitch), Math.Abs(h));
+
+            // Cập nhật Tag cho hệ thống Alarm
+            _rollTag.Update(Math.Abs(roll));
+            _pitchTag.Update(Math.Abs(pitch));
+            _heaveTag.Update(Math.Abs(h));
         }
 
         private void HandlePosition(string fLat, string fLon)
         {
-            this.Invoke(new Action(() => {
-                HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateSensorData("GPS", $"{fLat} {fLon}");
-                if ((DateTime.Now - _lastGpsUIUpdate).TotalMilliseconds >= 250)
-                    lblPosition.Text = fLat == "NO FIX" ? "NO FIX" : $"{fLon}\r\n{fLat}";
-            }));
+            // Cập nhật biến bộ nhớ tạm, UI Timer sẽ bốc lên vẽ sau
+            _currentLat = fLat;
+            _currentLon = fLon;
         }
+        private void HandleSpeed(double k) { _speedKnot = k; }
 
-        private void HandleSpeed(double k)
-        {
-            this.Invoke(new Action(() => {
-                _speedKnot = k;
-                if ((DateTime.Now - _lastGpsUIUpdate).TotalMilliseconds >= 250)
-                    lblSpeed.Text = $"{k:0.0} kn";
-            }));
-        }
-        
 
-        
+
         private void ApplyLeftPanelStyles()
         {
             if (tableLayoutPanel1 != null)
@@ -444,16 +424,18 @@ namespace HelideckVer2
             return taskName switch { "GPS" => 0, "WIND" => 1, "R/P/H" => 2, "HEADING" => 3, _ => -1 };
         }
 
+        // Khai báo thêm biến Timer này ở gần đầu file MainForm.cs (chỗ khai báo _healthTimer)
+        private System.Windows.Forms.Timer _uiUpdateTimer;
+
         private void StartHealthTimer()
         {
             if (_healthTimer != null) return;
+
+            // 1. Timer kiểm tra kết nối (1 giây/lần)
             _healthTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             _healthTimer.Tick += (s, e) =>
             {
-                // 1. Lấy trạng thái mới nhất từ DataHub
                 var snapshot = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
-
-                // 2. Duyệt qua từng Task để cập nhật UI Badges và màu chữ
                 foreach (var row in snapshot.TaskRows)
                 {
                     string taskName = row.TaskName;
@@ -487,13 +469,57 @@ namespace HelideckVer2
                 }
             };
             _healthTimer.Start();
+
+            // 2. TẠO TIMER VẼ GIAO DIỆN (100ms/lần)
+            _uiUpdateTimer = new System.Windows.Forms.Timer { Interval = 100 };
+            _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
+            _uiUpdateTimer.Start();
         }
 
-        private void UpdateGridByTask(string task, string val)
+        // HÀM CHUYÊN TRÁCH CẬP NHẬT GIAO DIỆN
+        private void UiUpdateTimer_Tick(object sender, EventArgs e)
         {
-            // Ghi dữ liệu trực tiếp vào DataHub một cách an toàn
-            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateSensorData(task, val);
+            // 1. Đánh giá Báo động
+            _alarmEngine.Evaluate();
+
+            // 2. Chụp Snapshot dữ liệu MỚI NHẤT
+            var snapshot = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
+
+            // 3. Đẩy dữ liệu vào Biểu đồ
+            _trendControl.PushMotionData(snapshot.RollDeg, snapshot.PitchDeg, snapshot.HeaveCm);
+            _trendControl.PushWindData(snapshot.WindSpeedMs, snapshot.WindDirDeg);
+
+            // 4. Cập nhật nhãn (Labels)
+            lblHeading.Text = $"{snapshot.Heading:0.0}°";
+            lblWindSpeed.Text = $"{snapshot.WindSpeedMs:0.0} m/s";
+            lblWindRelated.Text = $"{snapshot.WindDirDeg:0}°";
+            lblRoll.Text = $"{snapshot.RollDeg:0.0}°";
+            lblPitch.Text = $"{snapshot.PitchDeg:0.0}°";
+            lblHeave.Text = $"{snapshot.HeaveCm:0.0} cm";
+            lblSpeed.Text = $"{_speedKnot:0.0} kn";
+            lblPosition.Text = _currentLat == "NO FIX" ? "NO FIX" : $"{_currentLon}\r\n{_currentLat}";
+            // 5. Cập nhật Radar
+            _radarControl.UpdateRadar(snapshot.Heading, snapshot.WindDirDeg);
+
+            // 6. Tính toán Chu kỳ Heave (Zero-crossing)
+            DateTime now = DateTime.Now;
+            if (_lastHeaveValue < 0 && snapshot.HeaveCm >= 0)
+            {
+                if (_lastZeroCrossTime != null)
+                {
+                    double sec = (now - _lastZeroCrossTime.Value).TotalSeconds;
+                    if (sec > 2.0)
+                    {
+                        lblHeaveCycle.Text = $"{sec:0.0} s";
+                        HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateHeavePeriod(sec);
+                    }
+                }
+                _lastZeroCrossTime = now;
+            }
+            _lastHeaveValue = snapshot.HeaveCm;
         }
+
+
 
         private bool IsAlarmActive(string alarmId)
         {
@@ -541,46 +567,23 @@ namespace HelideckVer2
         // ==========================================
         // 6. XỬ LÝ COM PORT, PARSE VÀ TREND CHART
         // ==========================================
-        
+
         private void OnComDataReceived(string portName, string rawData)
         {
-            // Form1 không tự cắt chuỗi nữa, ném thẳng cho chuyên gia Parser xử lý
+            // BƠM CHUỖI RAW THẲNG VÀO DATAHUB CHO DATALIST (BẢNG QUÉT)
+            var task = _taskList.Find(t => t.PortName == portName);
+            if (task != null)
+            {
+                HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateRawString(task.TaskName, rawData);
+            }
+
+            // Đẩy cho Parser dịch
             _nmeaParser.Parse(portName, rawData);
         }
 
 
 
-        private void DisplayMotionData(double r, double p, double h)
-        {
-            _trendControl.PushMotionData(r, p, h);
-            _rollDeg = r; _pitchDeg = p; _heaveCm = h;
-            DateTime now = DateTime.Now;
-
-            // --- BÍ QUYẾT: HÃM UI NHƯNG KHÔNG HÃM CHART ---
-            if ((now - _lastMotionUIUpdate).TotalMilliseconds >= 250)
-            {
-                lblRoll.Text = $"{r:0.0}°";   // Giảm xuống 1 số thập phân cho đỡ rối
-                lblPitch.Text = $"{p:0.0}°";
-                lblHeave.Text = $"{h:0.0} cm";
-                _lastMotionUIUpdate = now;
-            }
-
-            if (_lastHeaveValue < 0 && h >= 0)
-            {
-                if (_lastZeroCrossTime != null)
-                {
-                    double sec = (now - _lastZeroCrossTime.Value).TotalSeconds;
-                    if (sec > 2.0) { lblHeaveCycle.Text = $"{sec:0.0} s"; _heavePeriodSec = sec; }
-                }
-                _lastZeroCrossTime = now;
-            }
-            _lastHeaveValue = h;
-
-            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateSensorData("R/P/H", $"R:{r:0.0} P:{p:0.0} H:{h:0.0}", Math.Abs(r), Math.Abs(p), Math.Abs(h));
-
-            
-            _rollTag.Update(Math.Abs(r)); _pitchTag.Update(Math.Abs(p)); _heaveTag.Update(Math.Abs(h)); _alarmEngine.Evaluate();
-        }
+        
 
         // ==========================================
         // 7. CÁC HÀM TIỆN ÍCH, VẼ GIAO DIỆN, CHART

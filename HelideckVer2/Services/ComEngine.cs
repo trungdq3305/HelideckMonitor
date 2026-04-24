@@ -57,6 +57,12 @@ namespace HelideckVer2.Services
                     var port = (SerialPort)s;
                     try
                     {
+                        if (port.BytesToRead > 512)
+                        {
+                            port.DiscardInBuffer();
+                            return;
+                        }
+
                         string line = port.ReadLine();
                         if (!string.IsNullOrWhiteSpace(line))
                         {
