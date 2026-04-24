@@ -119,7 +119,11 @@ namespace HelideckVer2.Services.Parsing
                     return;
                 }
             }
-            catch { /* Bỏ qua các chuỗi rác, không làm treo máy */ }
+            catch (Exception ex)
+            {
+                // Bắt chính xác lỗi để lại dấu vết
+                SystemLogger.LogError($"NMEA Parse Error. RawData: {data}", ex);
+            }
         }
 
         private double TryGetNumberAfterToken(string[] p, string t)
