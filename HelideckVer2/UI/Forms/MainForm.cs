@@ -53,6 +53,7 @@ namespace HelideckVer2
         private double _heaveArm    = 10.0;
 
         private Label lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading;
+        private Label[] _unitLabels = new Label[9];
 
         private HelideckVer2.UI.Controls.TrendChartControl _trendControl;
 
@@ -297,6 +298,8 @@ namespace HelideckVer2
                 lblRoll, lblPitch, lblHeave,
                 lblHeaveCycle, lblWindSpeed, lblWindRelated
             };
+            // Đơn vị hiển thị riêng ở label nhỏ bên dưới – không nhúng vào text số
+            string[] unitTexts = { "", "kn", "°", "°", "°", "cm", "s", "m/s", "°" };
 
             Color cardBg  = Color.FromArgb(28, 42, 62);
             Color sepClr  = Color.FromArgb(50, 70, 100);
@@ -318,38 +321,58 @@ namespace HelideckVer2
                 values[i].Dock      = DockStyle.Fill;
                 values[i].TextAlign = ContentAlignment.MiddleCenter;
                 values[i].BackColor = cardBg;
-                values[i].ForeColor = Color.FromArgb(100, 220, 130); // green by default
+                values[i].ForeColor = Color.FromArgb(100, 220, 130);
 
                 if (i == 0) values[i].ForeColor = Color.FromArgb(100, 180, 255); // POSITION – blue
                 if (i == 5) values[i].ForeColor = Color.FromArgb(255, 160, 60);  // HEAVE – orange
 
-                // Thêm click ack alarm
                 if (i == 7) values[i].Click += lblWindSpeed_Click;
                 if (i == 3) values[i].Click += lblRoll_Click;
                 if (i == 4) values[i].Click += lblPitch_Click;
                 if (i == 5) values[i].Click += lblHeave_Click;
 
+                bool hasUnit = !string.IsNullOrEmpty(unitTexts[i]);
+                var unitLbl = new Label
+                {
+                    Text      = unitTexts[i],
+                    AutoSize  = false,
+                    Dock      = DockStyle.Bottom,
+                    Height    = hasUnit ? 18 : 0,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    BackColor = cardBg,
+                    ForeColor = Color.FromArgb(80, 120, 160),
+                    Font      = new Font("Segoe UI", 9f)
+                };
+                _unitLabels[i] = unitLbl;
+
                 var card = new Panel { Dock = DockStyle.Fill, Margin = new Padding(4), BackColor = cardBg };
                 EnableDoubleBuffer(card);
                 int idx = i;
 
-                // Font tự co giãn
                 card.Resize += (s, e) =>
                 {
                     if (card.Height <= 0 || card.Width <= 0) return;
 
                     titles[idx].Height = Math.Max(20, (int)(card.Height * 0.28f));
 
+                    if (_unitLabels[idx] != null && !string.IsNullOrEmpty(_unitLabels[idx].Text))
+                    {
+                        int unitH = Math.Max(14, (int)(card.Height * 0.18f));
+                        _unitLabels[idx].Height = unitH;
+                        float uf = Math.Max(7f, Math.Min(card.Height * 0.09f, 11f));
+                        SafeSetFont(_unitLabels[idx], uf);
+                    }
+
                     float tf = Math.Max(8f, Math.Min(Math.Min(card.Height * 0.10f, card.Width * 0.08f), 18f));
                     SafeSetFont(titles[idx], tf);
 
+                    // vf: số thuần (không có unit trong text) → có thể dùng hệ số rộng hơn
                     float vf = idx == 0
                         ? Math.Max(8f,  Math.Min(Math.Min(card.Height * 0.14f, card.Width * 0.055f), 20f))
-                        : Math.Max(10f, Math.Min(Math.Min(card.Height * 0.30f, card.Width * 0.16f), 42f));
+                        : Math.Max(10f, Math.Min(Math.Min(card.Height * 0.32f, card.Width * 0.22f), 42f));
                     SafeSetFont(values[idx], vf);
                 };
 
-                // Viền bo góc
                 card.Paint += (s, e) =>
                 {
                     var g = e.Graphics;
@@ -363,8 +386,10 @@ namespace HelideckVer2
                     g.DrawLine(sp, 8, lineY, card.Width - 8, lineY);
                 };
 
+                // Thứ tự Add quan trọng: Fill được dock sau cùng → add trước
                 card.Controls.Add(values[i]);
-                card.Controls.Add(titles[i]);
+                card.Controls.Add(unitLbl);   // Bottom dock trước Fill
+                card.Controls.Add(titles[i]); // Top dock trước Bottom
 
                 if (i == 0)
                 {
@@ -498,14 +523,14 @@ namespace HelideckVer2
             _trendControl.PushMotionData(snap.RollDeg, snap.PitchDeg, snap.HeaveCm);
             _trendControl.PushWindData(snap.WindSpeedMs, snap.WindDirDeg);
 
-            // 4. Cập nhật nhãn
-            lblHeading.Text    = $"{snap.Heading:0.0}°";
-            lblWindSpeed.Text  = $"{snap.WindSpeedMs:0.0} m/s";
-            lblWindRelated.Text= $"{snap.WindDirDeg:0}°";
-            lblRoll.Text       = $"{snap.RollDeg:0.0}°";
-            lblPitch.Text      = $"{snap.PitchDeg:0.0}°";
-            lblHeave.Text      = $"{snap.HeaveCm:0.0} cm";
-            lblSpeed.Text      = $"{snap.GpsSpeedKnot:0.0} kn";
+            // 4. Cập nhật nhãn – chỉ số thuần, đơn vị nằm ở _unitLabels riêng
+            lblHeading.Text    = $"{snap.Heading:0.0}";
+            lblWindSpeed.Text  = $"{snap.WindSpeedMs:0.0}";
+            lblWindRelated.Text= $"{snap.WindDirDeg:0}";
+            lblRoll.Text       = $"{snap.RollDeg:0.0}";
+            lblPitch.Text      = $"{snap.PitchDeg:0.0}";
+            lblHeave.Text      = $"{snap.HeaveCm:0.0}";
+            lblSpeed.Text      = $"{snap.GpsSpeedKnot:0.0}";
 
             if (snap.GpsLat == "NO FIX")
                 lblPosition.Text = "NO FIX";
@@ -513,7 +538,7 @@ namespace HelideckVer2
                 lblPosition.Text = $"{snap.GpsLon}\n{snap.GpsLat}";
 
             lblHeaveCycle.Text = snap.HeavePeriodSec > 0
-                ? $"{snap.HeavePeriodSec:0.0} s"
+                ? $"{snap.HeavePeriodSec:0.0}"
                 : "---";
 
             // 5. Radar

@@ -23,7 +23,7 @@ namespace HelideckVer2.Services
             Directory.CreateDirectory(_baseFolder);
 
             // 1. TỰ ĐỘNG DỌN RÁC (> 90 NGÀY) MỖI KHI MỞ APP
-            CleanOldLogs(90);
+            CleanOldLogs(30);
 
             // 2. KHỞI TẠO TIMER XẢ BUFFER (10 giây / lần)
             _flushTimer = new System.Timers.Timer(10000);

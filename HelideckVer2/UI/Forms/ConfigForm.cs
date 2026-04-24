@@ -111,7 +111,7 @@ namespace HelideckVer2
         {
             var lbl = new Label
             {
-                Text      = "Chỉnh sửa cổng COM. BaudRate cố định theo phần cứng.",
+                Text      = "Edit COM port assignments. Baud rate is fixed by hardware.",
                 Dock      = DockStyle.Top,
                 Height    = 28,
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -188,7 +188,7 @@ namespace HelideckVer2
                 if (task == null) continue;
 
                 task.PortName = row.Cells["Port"].Value?.ToString() ?? task.PortName;
-                // BaudRate không lưu – cố định theo phần cứng
+                // BaudRate not saved – fixed by hardware
             }
 
             var saveCfg  = HelideckVer2.Models.SystemConfig.Export();
@@ -196,8 +196,8 @@ namespace HelideckVer2
             HelideckVer2.Services.ConfigService.Save(saveCfg);
 
             MessageBox.Show(
-                "Cấu hình đã lưu!\n\nVui lòng khởi động lại ứng dụng để áp dụng thay đổi COM / BaudRate.",
-                "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                "Configuration saved!\n\nPlease restart the application to apply COM port / Baud rate changes.",
+                "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             this.DialogResult = DialogResult.OK;
             this.Close();

@@ -20,7 +20,7 @@ namespace HelideckVer2.Services.Parsing
         public event Action<double, double, double> OnMotionParsed;
         public event Action<string, string> OnPositionParsed;
         public event Action<double>         OnSpeedParsed;
-
+        
         private const int NoiseTriggerCount = 5; // Số lần checksum lỗi liên tiếp để kích hoạt freeze
 
         // Đếm lỗi liên tiếp theo cổng
