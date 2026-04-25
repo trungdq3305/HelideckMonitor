@@ -155,14 +155,13 @@ namespace HelideckVer2.Services.Parsing
                     return;
                 }
 
-                // 6. SPEED ($GPVTG)
-                if (p[0].Equals("$GPVTG", StringComparison.OrdinalIgnoreCase))
+                // 6. SPEED ($GPVTG) — $GPVTG,COG_T,T,COG_M,M,SOG_knots,N,SOG_kph,K
+                if (p[0].Equals("$GPVTG", StringComparison.OrdinalIgnoreCase) && p.Length >= 6)
                 {
-                    double k = TryGetNumberAfterToken(p, "N");
-                    if (!double.IsNaN(k))
+                    if (double.TryParse(p[5], style, ci, out double knots))
                     {
-                        _lastSpeed = k;
-                        OnSpeedParsed?.Invoke(k);
+                        _lastSpeed = knots;
+                        OnSpeedParsed?.Invoke(knots);
                     }
                     return;
                 }
@@ -196,13 +195,5 @@ namespace HelideckVer2.Services.Parsing
             if (_lastSpeed.HasValue)     OnSpeedParsed?.Invoke(_lastSpeed.Value);
         }
 
-        private double TryGetNumberAfterToken(string[] p, string token)
-        {
-            for (int i = 0; i < p.Length - 1; i++)
-                if (string.Equals(p[i], token, StringComparison.OrdinalIgnoreCase) &&
-                    double.TryParse(p[i + 1], NumberStyles.Any, CultureInfo.InvariantCulture, out double v))
-                    return v;
-            return double.NaN;
-        }
     }
 }

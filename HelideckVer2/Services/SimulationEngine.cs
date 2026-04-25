@@ -31,7 +31,7 @@ namespace HelideckVer2.Services
 
                 // Gửi kèm Checksum THẬT để lọt qua màng lọc khắt khe của Parser
                 _onDataGenerated?.Invoke("COM1", AppendChecksum($"$GPGGA,083226.00,{lat},N,{lon},E,1,08,1.0,10.0,M,0.0,M,,"));
-                _onDataGenerated?.Invoke("COM1", AppendChecksum($"$GPVTG,360.0,T,348.7,M,0.0,N,{speed.ToString("0.0", ci)},K"));
+                _onDataGenerated?.Invoke("COM1", AppendChecksum($"$GPVTG,360.0,T,348.7,M,{speed.ToString("0.0", ci)},N,{(speed * 1.852).ToString("0.0", ci)},K"));
                 _onDataGenerated?.Invoke("COM2", AppendChecksum($"$WIMWV,{windDir.ToString("0.0", ci)},R,{windSpeed.ToString("0.0", ci)},M,A"));
                 _onDataGenerated?.Invoke("COM3", AppendChecksum($"$CNTB,{roll.ToString("0.00", ci)},{pitch.ToString("0.00", ci)},{heave.ToString("0.0", ci)}"));
                 _onDataGenerated?.Invoke("COM4", AppendChecksum($"$HEHDT,{heading.ToString("0.0", ci)},T"));
