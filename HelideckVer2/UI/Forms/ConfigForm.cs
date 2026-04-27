@@ -176,7 +176,7 @@ namespace HelideckVer2
         {
             var lbl = new Label
             {
-                Text = "Edit COM port assignments. Baud rate is fixed by hardware.",
+                Text = "Edit COM port assignments. Baud rate is set in config.json only.",
                 Dock = DockStyle.Top,
                 Height = 28,
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -198,9 +198,9 @@ namespace HelideckVer2
                 EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2
             };
 
-            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Task", HeaderText = "Task", ReadOnly = true, FillWeight = 80 });
-            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Port", HeaderText = "COM Port", FillWeight = 90 });
-            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Baud", HeaderText = "Baud Rate (fixed)", ReadOnly = true, FillWeight = 100 });
+            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Task", HeaderText = "Task",                ReadOnly = true, FillWeight = 80 });
+            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Port", HeaderText = "COM Port",             FillWeight = 90 });
+            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Baud", HeaderText = "Baud Rate (config.json)", ReadOnly = true, FillWeight = 100 });
 
             tab.Controls.Add(dgvComConfig);
             lbl.BringToFront();
