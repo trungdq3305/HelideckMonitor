@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using HelideckVer2.Models;
 
 namespace HelideckVer2.Services.Parsing
 {
@@ -37,6 +38,17 @@ namespace HelideckVer2.Services.Parsing
         private readonly Dictionary<string, bool> _isNoisy = new();
         public bool IsPortNoisy(string portName) =>
             _isNoisy.TryGetValue(portName, out bool v) && v;
+
+        // SentenceType override: port → suffix (vd: "COM2" → "MWV")
+        private readonly Dictionary<string, string> _portSentenceType = new();
+
+        public void SetPortTasks(IEnumerable<DeviceTask> tasks)
+        {
+            _portSentenceType.Clear();
+            foreach (var t in tasks)
+                if (!string.IsNullOrWhiteSpace(t.SentenceType))
+                    _portSentenceType[t.PortName] = t.SentenceType.Trim().ToUpperInvariant();
+        }
 
         // ── KIỂM TRA CHECKSUM CHUẨN NMEA XOR ────────────────────────────────
         private bool IsValidNmeaChecksum(string sentence)
@@ -78,6 +90,12 @@ namespace HelideckVer2.Services.Parsing
                 string[] p = clean.Split(',');
                 var ci    = CultureInfo.InvariantCulture;
                 var style = NumberStyles.Any;
+
+                // SentenceType override: nếu port được cấu hình chỉ nhận 1 loại câu,
+                // bỏ qua mọi câu không khớp suffix đó.
+                if (_portSentenceType.TryGetValue(portName, out string? overrideType) &&
+                    !p[0].EndsWith(overrideType, StringComparison.OrdinalIgnoreCase))
+                    return;
 
                 // 2. HEADING ($xxHDT)
                 if (p[0].EndsWith("HDT", StringComparison.OrdinalIgnoreCase) && p.Length >= 2)
@@ -155,8 +173,8 @@ namespace HelideckVer2.Services.Parsing
                     return;
                 }
 
-                // 6. SPEED ($GPVTG) — $GPVTG,COG_T,T,COG_M,M,SOG_knots,N,SOG_kph,K
-                if (p[0].Equals("$GPVTG", StringComparison.OrdinalIgnoreCase) && p.Length >= 6)
+                // 6. SPEED ($xxVTG) — $GPVTG / $IIVTG / $GNVTG,...
+                if (p[0].EndsWith("VTG", StringComparison.OrdinalIgnoreCase) && p.Length >= 6)
                 {
                     if (double.TryParse(p[5], style, ci, out double knots))
                     {

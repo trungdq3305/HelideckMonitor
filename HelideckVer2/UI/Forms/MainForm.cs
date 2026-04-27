@@ -107,6 +107,7 @@ namespace HelideckVer2
 
             // NMEA Parser
             _nmeaParser = new NmeaParserService { HeaveArm = _heaveArm };
+            _nmeaParser.SetPortTasks(ConfigForm.Tasks);
             _nmeaParser.OnHeadingParsed  += HandleHeading;
             _nmeaParser.OnWindParsed     += HandleWind;
             _nmeaParser.OnMotionParsed   += HandleMotion;
