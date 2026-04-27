@@ -205,7 +205,7 @@ namespace HelideckVer2
                 Font      = new Font("Segoe UI", 10, FontStyle.Bold)
             };
             btnDataList.FlatAppearance.BorderSize = 0;
-            btnDataList.Click += (s, e) => new DataListForm().ShowDialog(this);
+            btnDataList.Click += (s, e) => new DataListForm().Show(this);
 
             pnlBottom.Controls.Add(btnSetting);
             pnlBottom.Controls.Add(btnDataList);
