@@ -58,6 +58,7 @@ namespace HelideckVer2
                     {
                         t.PortName = saved.PortName;
                         if (saved.BaudRate > 0) t.BaudRate = saved.BaudRate;
+                        t.SentenceType = saved.SentenceType;
                     }
                 }
             }

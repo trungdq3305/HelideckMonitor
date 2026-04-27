@@ -74,6 +74,7 @@ namespace HelideckVer2
                     {
                         t.PortName = saved.PortName;
                         if (saved.BaudRate > 0) t.BaudRate = saved.BaudRate;
+                        t.SentenceType = saved.SentenceType;
                     }
                 }
             }
@@ -700,7 +701,7 @@ namespace HelideckVer2
         {
             _taskList = new List<DeviceTask>();
             foreach (var t in ConfigForm.Tasks)
-                _taskList.Add(new DeviceTask { TaskName = t.TaskName, PortName = t.PortName, BaudRate = t.BaudRate });
+                _taskList.Add(new DeviceTask { TaskName = t.TaskName, PortName = t.PortName, BaudRate = t.BaudRate, SentenceType = t.SentenceType });
         }
 
         private void UpdateBadge(Label lbl, string name, bool isStale, double age)

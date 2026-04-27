@@ -39,15 +39,25 @@ namespace HelideckVer2.Services.Parsing
         public bool IsPortNoisy(string portName) =>
             _isNoisy.TryGetValue(portName, out bool v) && v;
 
-        // SentenceType override: port → suffix (vd: "COM2" → "MWV")
-        private readonly Dictionary<string, string> _portSentenceType = new();
+        // port → danh sách suffix được phép (vd: "COM1" → ["GGA","VTG"])
+        // Nếu port không có entry → không lọc (auto-detect).
+        private readonly Dictionary<string, string[]> _portAllowedSentences = new();
 
         public void SetPortTasks(IEnumerable<DeviceTask> tasks)
         {
-            _portSentenceType.Clear();
+            _portAllowedSentences.Clear();
             foreach (var t in tasks)
-                if (!string.IsNullOrWhiteSpace(t.SentenceType))
-                    _portSentenceType[t.PortName] = t.SentenceType.Trim().ToUpperInvariant();
+            {
+                if (string.IsNullOrWhiteSpace(t.SentenceType)) continue;
+                var list = new List<string>();
+                foreach (var part in t.SentenceType.Split(','))
+                {
+                    var s = part.Trim().ToUpperInvariant();
+                    if (s.Length > 0) list.Add(s);
+                }
+                if (list.Count > 0)
+                    _portAllowedSentences[t.PortName] = list.ToArray();
+            }
         }
 
         // ── KIỂM TRA CHECKSUM CHUẨN NMEA XOR ────────────────────────────────
@@ -91,11 +101,14 @@ namespace HelideckVer2.Services.Parsing
                 var ci    = CultureInfo.InvariantCulture;
                 var style = NumberStyles.Any;
 
-                // SentenceType override: nếu port được cấu hình chỉ nhận 1 loại câu,
-                // bỏ qua mọi câu không khớp suffix đó.
-                if (_portSentenceType.TryGetValue(portName, out string? overrideType) &&
-                    !p[0].EndsWith(overrideType, StringComparison.OrdinalIgnoreCase))
-                    return;
+                // Nếu port có danh sách câu được phép, bỏ qua câu không nằm trong danh sách.
+                if (_portAllowedSentences.TryGetValue(portName, out string[]? allowed))
+                {
+                    bool matched = false;
+                    foreach (var suffix in allowed)
+                        if (p[0].EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) { matched = true; break; }
+                    if (!matched) return;
+                }
 
                 // 2. HEADING ($xxHDT)
                 if (p[0].EndsWith("HDT", StringComparison.OrdinalIgnoreCase) && p.Length >= 2)
