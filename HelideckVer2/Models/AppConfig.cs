@@ -15,6 +15,7 @@ namespace HelideckVer2.Models
         new DeviceTask { TaskName = "HEADING", PortName = "COM4", BaudRate = 4800 }
     };
         public bool IsSimulationMode { get; set; } = true;
+        public bool IsLightTheme { get; set; } = false;
         public string AdminPassword { get; set; } = "123456";
         public string ShipName { get; set; } = "FSO 01 - HELIDECK";
 

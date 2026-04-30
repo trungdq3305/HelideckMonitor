@@ -20,6 +20,7 @@ namespace HelideckVer2
         // ── COM Config tab ───────────────────────────────────────────────────
         private DataGridView dgvComConfig;
         private CheckBox chkSimulationMode;
+        private CheckBox chkLightTheme;
 
         // ── Vessel Image tab ─────────────────────────────────────────────────
         private PictureBox _imgPreview;
@@ -132,7 +133,19 @@ namespace HelideckVer2
             btnSave.FlatAppearance.BorderSize  = 1;
             btnSave.Click += BtnSave_Click;
 
+            chkLightTheme = new CheckBox
+            {
+                Text      = "☀  Light Theme",
+                AutoSize  = true,
+                Font      = new Font("Segoe UI", 9, FontStyle.Bold),
+                ForeColor = Palette.TextLabel,
+                BackColor = Color.Transparent,
+                Dock      = DockStyle.Left,
+                Padding   = new Padding(16, 8, 0, 0)
+            };
+
             pnlBottom.Controls.Add(chkSimulationMode);
+            pnlBottom.Controls.Add(chkLightTheme);
             pnlBottom.Controls.Add(btnSave);
 
             // ── Tab header bar (replaces TabControl to eliminate white border) ──
@@ -584,6 +597,7 @@ namespace HelideckVer2
             numPitch.Value = (decimal)SystemConfig.PMax;
             numHeave.Value = (decimal)SystemConfig.HMax;
             chkSimulationMode.Checked = SystemConfig.IsSimulationMode;
+            chkLightTheme.Checked     = SystemConfig.IsLightTheme;
 
             dgvComConfig.Rows.Clear();
             foreach (var t in Tasks)
@@ -597,6 +611,8 @@ namespace HelideckVer2
             SystemConfig.PMax = (double)numPitch.Value;
             SystemConfig.HMax = (double)numHeave.Value;
             SystemConfig.IsSimulationMode = chkSimulationMode.Checked;
+            bool themeChanged = SystemConfig.IsLightTheme != chkLightTheme.Checked;
+            SystemConfig.IsLightTheme = chkLightTheme.Checked;
 
             foreach (DataGridViewRow row in dgvComConfig.Rows)
             {
@@ -627,6 +643,14 @@ namespace HelideckVer2
             var saveCfg = HelideckVer2.Models.SystemConfig.Export();
             saveCfg.Tasks = Tasks;
             HelideckVer2.Services.ConfigService.Save(saveCfg);
+
+            if (themeChanged)
+            {
+                this.DialogResult = DialogResult.OK;
+                this.Close();
+                Application.Restart();
+                return;
+            }
 
             MessageBox.Show(
                 "Configuration saved!\n\nPlease restart the application to apply COM port / Baud rate changes.",

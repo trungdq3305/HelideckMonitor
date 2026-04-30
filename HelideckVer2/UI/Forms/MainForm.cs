@@ -64,6 +64,7 @@ namespace HelideckVer2
 
             var cfg = ConfigService.Load();
             SystemConfig.Apply(cfg);
+            Palette.IsLight = SystemConfig.IsLightTheme; // phải set trước khi build UI
 
             if (cfg.Tasks != null)
             {

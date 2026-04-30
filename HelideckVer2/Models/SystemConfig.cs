@@ -9,6 +9,7 @@ namespace HelideckVer2.Models
     public static class SystemConfig
     {
         public static bool IsSimulationMode { get; set; } = true;
+        public static bool IsLightTheme { get; set; } = false;
         public static string AdminPassword { get; set; } = "123456";
         public static string ShipName { get; set; } = "FSO 01 - HELIDECK";
 
@@ -20,6 +21,7 @@ namespace HelideckVer2.Models
         public static void Apply(HelideckVer2.Models.AppConfig cfg)
         {
             IsSimulationMode = cfg.IsSimulationMode;
+            IsLightTheme = cfg.IsLightTheme;
             AdminPassword = cfg.AdminPassword ?? "123456";
             ShipName = cfg.ShipName ?? "FSO 01 - HELIDECK";
 
@@ -34,6 +36,7 @@ namespace HelideckVer2.Models
             return new HelideckVer2.Models.AppConfig
             {
                 IsSimulationMode = IsSimulationMode,
+                IsLightTheme = IsLightTheme,
                 AdminPassword = AdminPassword,
                 ShipName = ShipName,
                 WindMax = WindMax,
