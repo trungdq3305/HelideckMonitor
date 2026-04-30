@@ -294,11 +294,5 @@ namespace HelideckVer2
                 }
             }
         }
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            _updateTimer?.Stop();
-            base.OnFormClosing(e);
-        }
     }
 }

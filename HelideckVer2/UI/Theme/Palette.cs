@@ -13,8 +13,11 @@ namespace HelideckVer2.UI.Theme
         public static readonly Color AppBg      = Color.FromArgb(0x09, 0x0C, 0x11); // #090C11 – near-black, trung tính
         public static readonly Color PanelBg    = Color.FromArgb(0x0D, 0x13, 0x1C); // #0D131C – bar trên/dưới, panel
         public static readonly Color CardBg     = Color.FromArgb(0x11, 0x1A, 0x28); // #111A28 – card dữ liệu
+        public static readonly Color CardFace   = Color.FromArgb(0x1C, 0x2A, 0x3E); // #1C2A3E – card face (left-panel data cards)
         public static readonly Color ChartBg    = Color.FromArgb(0x0A, 0x12, 0x1C); // #0A121C – chart area
         public static readonly Color SurfaceHi  = Color.FromArgb(0x16, 0x22, 0x36); // #162236 – hover/selected row
+        public static readonly Color SectionHdrBg = Color.FromArgb(0x1E, 0x32, 0x55); // #1E3255 – panel/section title bar
+        public static readonly Color InputBg    = Color.FromArgb(0x11, 0x1A, 0x28); // #111A28 – TextBox/NumericUpDown bg
 
         // ── BORDERS ──────────────────────────────────────────────────────────
         public static readonly Color BorderCard  = Color.FromArgb(0x1C, 0x2C, 0x46); // #1C2C46
@@ -61,7 +64,7 @@ namespace HelideckVer2.UI.Theme
         // Motion: 3 màu phân biệt rõ – quan trọng cho helideck landing assessment
         public static readonly Color SeriesRoll    = Color.FromArgb(0x00, 0xC0, 0xF0); // #00C0F0 – cyan (roll)
         public static readonly Color SeriesPitch   = Color.FromArgb(0xFF, 0xB8, 0x00); // #FFB800 – amber (pitch)
-        public static readonly Color SeriesHeave   = Color.FromArgb(0xFF, 0x60, 0x60); // #FF6060 – coral (heave)
+        public static readonly Color SeriesHeave   = Color.FromArgb(0xB0, 0x60, 0xF0); // #B060F0 – violet (heave, tránh nhầm alarm red)
         // Wind: seafoam + gold – khác hẳn với motion series
         public static readonly Color SeriesWSpeed  = Color.FromArgb(0x48, 0xE0, 0xA0); // #48E0A0 – seafoam (wind speed)
         public static readonly Color SeriesWDir    = Color.FromArgb(0xFF, 0xD8, 0x40); // #FFD840 – gold (wind dir)

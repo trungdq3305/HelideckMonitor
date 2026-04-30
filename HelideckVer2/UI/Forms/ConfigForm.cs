@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using HelideckVer2.Models;
+using HelideckVer2.UI.Theme;
 
 namespace HelideckVer2
 {
@@ -27,7 +28,7 @@ namespace HelideckVer2
         // ── Alarm History tab ────────────────────────────────────────────────
         private DataGridView _dgvAlarmHistory;
         private ComboBox _cboTimeRange;
-        private TabPage _tabHistory;
+        private Panel _tabHistory;
         private bool _historyLoaded;
         private CancellationTokenSource _historyCts;
 
@@ -40,6 +41,16 @@ namespace HelideckVer2
             new DeviceTask { TaskName = "HEADING", PortName = "COM4", BaudRate = 4800 },
             new DeviceTask { TaskName = "AUX",     PortName = "COM5", BaudRate = 4800 }
         };
+
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            int dark = 1;
+            DwmSetWindowAttribute(this.Handle, 20, ref dark, sizeof(int));
+        }
 
         public ConfigForm()
         {
@@ -82,77 +93,127 @@ namespace HelideckVer2
 
         private void SetupUI()
         {
-            this.Text = "SYSTEM CONFIGURATION";
-            this.ClientSize = new Size(620, 480);
+            this.Text            = "SYSTEM CONFIGURATION";
+            this.ClientSize      = new Size(620, 480);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.StartPosition = FormStartPosition.CenterParent;
+            this.MaximizeBox     = false;
+            this.StartPosition   = FormStartPosition.CenterParent;
+            this.BackColor       = Palette.AppBg;
 
-            Panel pnlBottom = new Panel
+            var pnlBottom = new Panel
             {
-                Dock = DockStyle.Bottom,
-                Height = 60,
-                BackColor = Color.WhiteSmoke,
-                Padding = new Padding(10)
+                Dock      = DockStyle.Bottom,
+                Height    = 60,
+                BackColor = Palette.PanelBg,
+                Padding   = new Padding(10)
             };
 
             chkSimulationMode = new CheckBox
             {
-                Text = "Enable Simulation Mode (Fake Data)",
-                AutoSize = true,
-                Font = new Font("Segoe UI", 9, FontStyle.Bold),
-                ForeColor = Color.Blue,
-                Dock = DockStyle.Left,
-                Padding = new Padding(10, 8, 0, 0)
+                Text      = "Enable Simulation Mode (Fake Data)",
+                AutoSize  = true,
+                Font      = new Font("Segoe UI", 9, FontStyle.Bold),
+                ForeColor = Palette.BtnSettingsFg,
+                BackColor = Color.Transparent,
+                Dock      = DockStyle.Left,
+                Padding   = new Padding(10, 8, 0, 0)
             };
 
-            Button btnSave = new Button
+            var btnSave = new Button
             {
-                Text = "SAVE / EXIT",
-                Width = 140,
-                BackColor = Color.LightGreen,
-                Dock = DockStyle.Right
+                Text      = "SAVE / EXIT",
+                Width     = 140,
+                BackColor = Palette.BtnPrimaryBg,
+                ForeColor = Palette.BtnPrimaryFg,
+                FlatStyle = FlatStyle.Flat,
+                Dock      = DockStyle.Right
             };
+            btnSave.FlatAppearance.BorderColor = Palette.BorderCard;
+            btnSave.FlatAppearance.BorderSize  = 1;
             btnSave.Click += BtnSave_Click;
 
             pnlBottom.Controls.Add(chkSimulationMode);
             pnlBottom.Controls.Add(btnSave);
 
-            TabControl tabConfig = new TabControl { Dock = DockStyle.Fill };
-
-            var tabAlarm = new TabPage("Alarm Limits") { BackColor = Color.White };
-            SetupAlarmTab(tabAlarm);
-            tabConfig.TabPages.Add(tabAlarm);
-
-            var tabCom = new TabPage("COM Configuration") { BackColor = Color.White };
-            SetupComTab(tabCom);
-            tabConfig.TabPages.Add(tabCom);
-
-            var tabImage = new TabPage("Vessel Image") { BackColor = Color.White };
-            SetupImageTab(tabImage);
-            tabConfig.TabPages.Add(tabImage);
-
-            _tabHistory = new TabPage("Alarm History") { BackColor = Color.White };
-            SetupAlarmHistoryTab(_tabHistory);
-            tabConfig.TabPages.Add(_tabHistory);
-
-            tabConfig.Selected += (s, e) =>
+            // ── Tab header bar (replaces TabControl to eliminate white border) ──
+            var tabBar = new FlowLayoutPanel
             {
-                if (e.TabPage == _tabHistory && !_historyLoaded)
+                Dock         = DockStyle.Top,
+                Height       = 36,
+                BackColor    = Palette.PanelBg,
+                Padding      = new Padding(4, 4, 0, 0),
+                WrapContents = false
+            };
+
+            // ── Content area: one panel visible at a time ─────────────────────
+            var contentArea = new Panel { Dock = DockStyle.Fill, BackColor = Palette.AppBg };
+
+            var pnlAlarm = new Panel { Dock = DockStyle.Fill, BackColor = Palette.CardBg, Visible = true  };
+            var pnlCom   = new Panel { Dock = DockStyle.Fill, BackColor = Palette.CardBg, Visible = false };
+            var pnlImage = new Panel { Dock = DockStyle.Fill, BackColor = Palette.CardBg, Visible = false };
+            _tabHistory  = new Panel { Dock = DockStyle.Fill, BackColor = Palette.CardBg, Visible = false };
+
+            SetupAlarmTab(pnlAlarm);
+            SetupComTab(pnlCom);
+            SetupImageTab(pnlImage);
+            SetupAlarmHistoryTab(_tabHistory);
+
+            contentArea.Controls.Add(_tabHistory);
+            contentArea.Controls.Add(pnlImage);
+            contentArea.Controls.Add(pnlCom);
+            contentArea.Controls.Add(pnlAlarm);
+
+            // ── Tab buttons ───────────────────────────────────────────────────
+            string[] names = { "Alarm Limits", "COM Configuration", "Vessel Image", "Alarm History" };
+            Panel[]  pages = { pnlAlarm, pnlCom, pnlImage, _tabHistory };
+            var btns = new Button[4];
+
+            void SelectTab(int idx)
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    pages[i].Visible          = (i == idx);
+                    btns[i].BackColor         = (i == idx) ? Palette.BtnActiveBg  : Palette.PanelBg;
+                    btns[i].ForeColor         = (i == idx) ? Palette.BtnActiveFg  : Palette.TextLabel;
+                    btns[i].FlatAppearance.BorderColor = (i == idx) ? Palette.BtnActiveFg : Palette.BorderCard;
+                }
+                pages[idx].BringToFront();
+                if (idx == 3 && !_historyLoaded)
                 {
                     _historyLoaded = true;
                     _ = LoadAlarmHistoryAsync();
                 }
-            };
+            }
 
+            for (int i = 0; i < 4; i++)
+            {
+                int captured = i;
+                btns[i] = new Button
+                {
+                    Text      = names[i],
+                    BackColor = (i == 0) ? Palette.BtnActiveBg : Palette.PanelBg,
+                    ForeColor = (i == 0) ? Palette.BtnActiveFg : Palette.TextLabel,
+                    FlatStyle = FlatStyle.Flat,
+                    Height    = 28,
+                    AutoSize  = true,
+                    Padding   = new Padding(10, 0, 10, 0),
+                    Font      = new Font("Segoe UI", 9, FontStyle.Bold),
+                    Margin    = new Padding(0, 0, 2, 0)
+                };
+                btns[i].FlatAppearance.BorderColor = (i == 0) ? Palette.BtnActiveFg : Palette.BorderCard;
+                btns[i].FlatAppearance.BorderSize  = 1;
+                btns[i].Click += (s, e) => SelectTab(captured);
+                tabBar.Controls.Add(btns[i]);
+            }
+
+            this.Controls.Add(contentArea);
+            this.Controls.Add(tabBar);
             this.Controls.Add(pnlBottom);
-            this.Controls.Add(tabConfig);
-            pnlBottom.BringToFront();
         }
 
         // ── TAB: ALARM LIMITS ─────────────────────────────────────────────────
 
-        private void SetupAlarmTab(TabPage tab)
+        private void SetupAlarmTab(Panel tab)
         {
             int y = 20;
             numWind = AddAlarmRow(tab, "Wind Max (m/s):", ref y);
@@ -161,10 +222,23 @@ namespace HelideckVer2
             numHeave = AddAlarmRow(tab, "Heave Max (cm):", ref y);
         }
 
-        private NumericUpDown AddAlarmRow(TabPage p, string text, ref int top)
+        private NumericUpDown AddAlarmRow(Panel p, string text, ref int top)
         {
-            var lbl = new Label { Text = text, Top = top, Left = 30, AutoSize = true, Font = new Font("Segoe UI", 10) };
-            var num = new NumericUpDown { Top = top - 3, Left = 220, Width = 110, DecimalPlaces = 1, Maximum = 9999, Font = new Font("Segoe UI", 10) };
+            var lbl = new Label
+            {
+                Text      = text, Top = top, Left = 30, AutoSize = true,
+                Font      = new Font("Segoe UI", 10),
+                ForeColor = Palette.TextLabel,
+                BackColor = Color.Transparent
+            };
+            var num = new NumericUpDown
+            {
+                Top           = top - 3, Left = 220, Width = 110,
+                DecimalPlaces = 1, Maximum = 9999,
+                Font          = new Font("Segoe UI", 10),
+                BackColor     = Palette.InputBg,
+                ForeColor     = Palette.TextValue
+            };
             p.Controls.Add(lbl);
             p.Controls.Add(num);
             top += 55;
@@ -173,31 +247,42 @@ namespace HelideckVer2
 
         // ── TAB: COM CONFIGURATION ────────────────────────────────────────────
 
-        private void SetupComTab(TabPage tab)
+        private void SetupComTab(Panel tab)
         {
             var lbl = new Label
             {
-                Text = "Edit COM port assignments. Baud rate is set in config.json only.",
-                Dock = DockStyle.Top,
-                Height = 28,
+                Text      = "Edit COM port assignments. Baud rate is set in config.json only.",
+                Dock      = DockStyle.Top,
+                Height    = 28,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font("Segoe UI", 8.5f),
-                ForeColor = Color.DimGray,
-                Padding = new Padding(4, 0, 0, 0)
+                Font      = new Font("Segoe UI", 8.5f),
+                ForeColor = Palette.TextLabel,
+                BackColor = Color.Transparent,
+                Padding   = new Padding(4, 0, 0, 0)
             };
             tab.Controls.Add(lbl);
 
             dgvComConfig = new DataGridView
             {
-                Dock = DockStyle.Fill,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                AllowUserToAddRows = false,
-                AllowUserToDeleteRows = false,
-                RowHeadersVisible = false,
-                BackgroundColor = Color.White,
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2
+                Dock                    = DockStyle.Fill,
+                AutoSizeColumnsMode     = DataGridViewAutoSizeColumnsMode.Fill,
+                AllowUserToAddRows      = false,
+                AllowUserToDeleteRows   = false,
+                RowHeadersVisible       = false,
+                BackgroundColor         = Palette.CardBg,
+                GridColor               = Palette.BorderCard,
+                BorderStyle             = BorderStyle.None,
+                EnableHeadersVisualStyles = false,
+                SelectionMode           = DataGridViewSelectionMode.FullRowSelect,
+                EditMode                = DataGridViewEditMode.EditOnKeystrokeOrF2
             };
+            dgvComConfig.ColumnHeadersDefaultCellStyle.BackColor = Palette.PanelBg;
+            dgvComConfig.ColumnHeadersDefaultCellStyle.ForeColor = Palette.TextLabel;
+            dgvComConfig.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            dgvComConfig.DefaultCellStyle.BackColor          = Palette.CardBg;
+            dgvComConfig.DefaultCellStyle.ForeColor          = Palette.TextValue;
+            dgvComConfig.DefaultCellStyle.SelectionBackColor = Palette.SurfaceHi;
+            dgvComConfig.DefaultCellStyle.SelectionForeColor = Palette.TextValue;
 
             dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Task", HeaderText = "Task",                ReadOnly = true, FillWeight = 80 });
             dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Port", HeaderText = "COM Port",             FillWeight = 90 });
@@ -209,34 +294,48 @@ namespace HelideckVer2
 
         // ── TAB: VESSEL IMAGE ─────────────────────────────────────────────────
 
-        private void SetupImageTab(TabPage tab)
+        private void SetupImageTab(Panel tab)
         {
             // Top strip: label trái + nút Browse phải – chỉ 1 Dock.Top, không tranh chấp với Fill
-            var pnlTop = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Color.WhiteSmoke };
+            var pnlTop = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Palette.PanelBg };
 
             var lbl = new Label
             {
-                Text      = "Vessel / Helideck Image  (saved to Images/picture1.png)",
-                Left      = 8, Top = 16, AutoSize = false,
+                Text      = "Vessel / Helideck Image",
+                Left      = 8, Top = 6, AutoSize = false,
                 Width     = 340, Height = 18,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Font      = new Font("Segoe UI", 8.5f),
-                ForeColor = Color.DimGray
+                Font      = new Font("Segoe UI", 9f, FontStyle.Bold),
+                ForeColor = Palette.TextLabel,
+                BackColor = Color.Transparent
+            };
+
+            var lblPath = new Label
+            {
+                Text      = "Saved to: Images/picture1.png",
+                Left      = 8, Top = 26, AutoSize = false,
+                Width     = 340, Height = 16,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font      = new Font("Segoe UI", 7.5f),
+                ForeColor = Palette.TextDim,
+                BackColor = Color.Transparent
             };
 
             var btnBrowse = new Button
             {
                 Text      = "📂  Browse Image...",
                 Left      = 354, Top = 7, Height = 36, Width = 210,
-                BackColor = Color.SteelBlue,
-                ForeColor = Color.White,
+                BackColor = Palette.BtnPrimaryBg,
+                ForeColor = Palette.BtnPrimaryFg,
                 FlatStyle = FlatStyle.Flat,
                 Font      = new Font("Segoe UI", 10, FontStyle.Bold)
             };
-            btnBrowse.FlatAppearance.BorderSize = 0;
+            btnBrowse.FlatAppearance.BorderColor = Palette.BorderCard;
+            btnBrowse.FlatAppearance.BorderSize  = 1;
             btnBrowse.Click += BtnBrowseImage_Click;
 
             pnlTop.Controls.Add(lbl);
+            pnlTop.Controls.Add(lblPath);
             pnlTop.Controls.Add(btnBrowse);
 
             // PictureBox fill – chỉ 1 control Dock.Fill trong tab, không bao giờ bị chèn
@@ -244,7 +343,7 @@ namespace HelideckVer2
             {
                 Dock        = DockStyle.Fill,
                 SizeMode    = PictureBoxSizeMode.Zoom,
-                BackColor   = Color.FromArgb(220, 230, 242),
+                BackColor   = Palette.ChartBg,
                 BorderStyle = BorderStyle.FixedSingle
             };
             LoadPreviewFromFile(Path.Combine(Application.StartupPath, "Images", "picture1.png"));
@@ -284,7 +383,7 @@ namespace HelideckVer2
 
         // ── TAB: ALARM HISTORY ────────────────────────────────────────────────
 
-        private void SetupAlarmHistoryTab(TabPage tab)
+        private void SetupAlarmHistoryTab(Panel tab)
         {
             // SplitContainer chia tab thành 2 phần cứng: toolbar trên, bảng dưới
             // Không phụ thuộc vào thứ tự Dock — không bao giờ bị lấn vào nhau
@@ -299,38 +398,50 @@ namespace HelideckVer2
                 Panel2MinSize    = 20,
                 SplitterWidth    = 1
             };
-            split.Panel1.BackColor = Color.WhiteSmoke;
-            split.Panel2.BackColor = Color.White;
+            split.Panel1.BackColor = Palette.PanelBg;
+            split.Panel2.BackColor = Palette.CardBg;
 
             _cboTimeRange = new ComboBox
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                Width = 110, Left = 8, Top = 9,
-                Font  = new Font("Segoe UI", 9)
+                Width     = 110, Left = 8, Top = 9,
+                Font      = new Font("Segoe UI", 9),
+                BackColor = Palette.InputBg,
+                ForeColor = Palette.TextValue
             };
             _cboTimeRange.Items.AddRange(new object[] { "Last 1 hour", "Last 6 hours", "Last 24 hours", "Last 7 days" });
             _cboTimeRange.SelectedIndex = 2;
 
-            var btnRefresh = MakeToolbarButton("⟳  Refresh", Color.SteelBlue, 130, 9, 100);
+            var btnRefresh = MakeToolbarButton("⟳  Refresh", Palette.BtnPrimaryBg, Palette.BtnPrimaryFg, 130, 9, 100);
             btnRefresh.Click += (s, e) => _ = LoadAlarmHistoryAsync();
 
-            var btnOpen = MakeToolbarButton("📂  Open Log Folder  (Ctrl+L)", Color.DimGray, 242, 9, 200);
+            var btnOpen = MakeToolbarButton("📂  Open Log Folder  (Ctrl+L)", Palette.PanelBg, Palette.TextLabel, 242, 9, 200);
             btnOpen.Click += (s, e) => OpenLogFolder();
 
             split.Panel1.Controls.AddRange(new Control[] { _cboTimeRange, btnRefresh, btnOpen });
 
             _dgvAlarmHistory = new DataGridView
             {
-                Dock                  = DockStyle.Fill,
-                ReadOnly              = true,
-                AllowUserToAddRows    = false,
-                AllowUserToDeleteRows = false,
-                RowHeadersVisible     = false,
-                BackgroundColor       = Color.White,
-                SelectionMode         = DataGridViewSelectionMode.FullRowSelect,
-                AutoSizeColumnsMode   = DataGridViewAutoSizeColumnsMode.Fill,
-                Font                  = new Font("Segoe UI", 9)
+                Dock                      = DockStyle.Fill,
+                ReadOnly                  = true,
+                AllowUserToAddRows        = false,
+                AllowUserToDeleteRows     = false,
+                RowHeadersVisible         = false,
+                BackgroundColor           = Palette.CardBg,
+                GridColor                 = Palette.BorderCard,
+                BorderStyle               = BorderStyle.None,
+                EnableHeadersVisualStyles = false,
+                SelectionMode             = DataGridViewSelectionMode.FullRowSelect,
+                AutoSizeColumnsMode       = DataGridViewAutoSizeColumnsMode.Fill,
+                Font                      = new Font("Segoe UI", 9)
             };
+            _dgvAlarmHistory.ColumnHeadersDefaultCellStyle.BackColor = Palette.PanelBg;
+            _dgvAlarmHistory.ColumnHeadersDefaultCellStyle.ForeColor = Palette.TextLabel;
+            _dgvAlarmHistory.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            _dgvAlarmHistory.DefaultCellStyle.BackColor          = Palette.CardBg;
+            _dgvAlarmHistory.DefaultCellStyle.ForeColor          = Palette.TextValue;
+            _dgvAlarmHistory.DefaultCellStyle.SelectionBackColor = Palette.SurfaceHi;
+            _dgvAlarmHistory.DefaultCellStyle.SelectionForeColor = Palette.TextValue;
             _dgvAlarmHistory.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColTime",  HeaderText = "Time",     FillWeight = 100 });
             _dgvAlarmHistory.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColAlarm", HeaderText = "Alarm ID", FillWeight =  70 });
             _dgvAlarmHistory.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColEvent", HeaderText = "Event",    FillWeight =  60 });
@@ -342,18 +453,24 @@ namespace HelideckVer2
             tab.Controls.Add(split);
         }
 
-        private Button MakeToolbarButton(string text, Color bg, int left, int top, int width) => new Button
+        private Button MakeToolbarButton(string text, Color bg, Color fg, int left, int top, int width)
         {
-            Text = text,
-            Left = left,
-            Top = top,
-            Width = width,
-            Height = 26,
-            BackColor = bg,
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold)
-        };
+            var btn = new Button
+            {
+                Text      = text,
+                Left      = left,
+                Top       = top,
+                Width     = width,
+                Height    = 26,
+                BackColor = bg,
+                ForeColor = fg,
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Segoe UI", 8.5f, FontStyle.Bold)
+            };
+            btn.FlatAppearance.BorderColor = Palette.BorderCard;
+            btn.FlatAppearance.BorderSize  = 1;
+            return btn;
+        }
 
         private async Task LoadAlarmHistoryAsync()
         {
@@ -394,10 +511,17 @@ namespace HelideckVer2
 
                 _dgvAlarmHistory.Rows[idx].DefaultCellStyle.BackColor = r.Evt switch
                 {
-                    "RAISED"  => Color.FromArgb(255, 215, 215),
-                    "CLEARED" => Color.FromArgb(210, 245, 215),
-                    "ACKED"   => Color.FromArgb(255, 240, 195),
-                    _         => Color.White
+                    "RAISED"  => Palette.AlarmActiveBg,
+                    "CLEARED" => Palette.AlarmNormalBg,
+                    "ACKED"   => Palette.AlarmAckBg,
+                    _         => Palette.CardBg
+                };
+                _dgvAlarmHistory.Rows[idx].DefaultCellStyle.ForeColor = r.Evt switch
+                {
+                    "RAISED"  => Palette.AlarmActiveFg,
+                    "CLEARED" => Palette.AlarmNormalFg,
+                    "ACKED"   => Palette.AlarmAckFg,
+                    _         => Palette.TextValue
                 };
             }
             _dgvAlarmHistory.ResumeLayout();

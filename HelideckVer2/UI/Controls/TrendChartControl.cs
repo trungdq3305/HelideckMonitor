@@ -93,7 +93,21 @@ namespace HelideckVer2.UI.Controls
                 {
                     AddSeries("Roll",  "MainArea", Palette.SeriesRoll);
                     AddSeries("Pitch", "MainArea", Palette.SeriesPitch);
-                    AddSeries("Heave", "MainArea", Palette.SeriesHeave);
+
+                    // Heave dùng trục Y phụ (bên phải) vì đơn vị cm khác Roll/Pitch (°)
+                    var heaveSeries = AddSeries("Heave", "MainArea", Palette.SeriesHeave);
+                    heaveSeries.YAxisType = AxisType.Secondary;
+
+                    var area = _chart.ChartAreas["MainArea"];
+                    area.AxisY.Title          = "°";
+                    area.AxisY.TitleForeColor = Palette.TextLabel;
+                    area.AxisY2.Enabled       = AxisEnabled.True;
+                    area.AxisY2.Title         = "cm";
+                    area.AxisY2.TitleForeColor          = Palette.SeriesHeave;
+                    area.AxisY2.LabelStyle.ForeColor    = Palette.SeriesHeave;
+                    area.AxisY2.LineColor               = Palette.SeriesHeave;
+                    area.AxisY2.MajorTickMark.LineColor = Palette.SeriesHeave;
+                    area.AxisY2.MajorGrid.LineColor     = Color.Transparent;
                 }
                 else
                 {
@@ -141,7 +155,7 @@ namespace HelideckVer2.UI.Controls
             _chart.ChartAreas.Add(area);
         }
 
-        private void AddSeries(string name, string areaName, Color color)
+        private Series AddSeries(string name, string areaName, Color color)
         {
             var s = new Series(name)
             {
@@ -152,6 +166,7 @@ namespace HelideckVer2.UI.Controls
                 Color        = color
             };
             _chart.Series.Add(s);
+            return s;
         }
 
         private void AlignAreas(string target, string master)

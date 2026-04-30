@@ -34,8 +34,8 @@ namespace HelideckVer2
 
         private Tag _windTag, _rollTag, _pitchTag, _heaveTag;
         private Label lblAlarmStatus;
+        private Label _lblClock;
         private FlowLayoutPanel _topMenu;
-        private TabControl _mainTabControl;
 
         private const double BufferMinutes    = 20;
         private double _currentViewMinutes    = 2.0;
@@ -168,12 +168,33 @@ namespace HelideckVer2
 
             _topMenu = new FlowLayoutPanel
             {
-                Dock         = DockStyle.Top,
-                Height       = 44,
+                Dock         = DockStyle.Fill,
                 BackColor    = Palette.PanelBg,
                 Padding      = new Padding(6),
                 WrapContents = false
             };
+
+            _lblClock = new Label
+            {
+                AutoSize  = false,
+                Width     = 150,
+                Dock      = DockStyle.Right,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font      = new Font("Segoe UI", 12, FontStyle.Bold),
+                BackColor = Palette.PanelBg,
+                ForeColor = Palette.TextValue,
+                Text      = DateTime.Now.ToString("HH:mm:ss"),
+                Padding   = new Padding(0, 0, 10, 0)
+            };
+
+            var headerPanel = new Panel
+            {
+                Dock      = DockStyle.Top,
+                Height    = 44,
+                BackColor = Palette.PanelBg
+            };
+            headerPanel.Controls.Add(_topMenu);
+            headerPanel.Controls.Add(_lblClock);
 
             Panel pnlBottom = new Panel
             {
@@ -193,7 +214,8 @@ namespace HelideckVer2
                 FlatStyle = FlatStyle.Flat,
                 Font      = new Font("Segoe UI", 10, FontStyle.Bold)
             };
-            btnSetting.FlatAppearance.BorderSize = 0;
+            btnSetting.FlatAppearance.BorderColor = Palette.BorderCard;
+            btnSetting.FlatAppearance.BorderSize  = 1;
             btnSetting.Click += BtnSettings_Click;
 
             Button btnDataList = new Button
@@ -206,33 +228,29 @@ namespace HelideckVer2
                 FlatStyle = FlatStyle.Flat,
                 Font      = new Font("Segoe UI", 10, FontStyle.Bold)
             };
-            btnDataList.FlatAppearance.BorderSize = 0;
+            btnDataList.FlatAppearance.BorderColor = Palette.BorderCard;
+            btnDataList.FlatAppearance.BorderSize  = 1;
             btnDataList.Click += (s, e) => new DataListForm().Show(this);
 
             pnlBottom.Controls.Add(btnSetting);
             pnlBottom.Controls.Add(btnDataList);
 
-            Button btnOver = CreateMenuButton("OVERVIEW", Color.Transparent);
-            btnOver.Click += (s, e) => _mainTabControl?.SelectTab(0);
-            _topMenu.Controls.Add(btnOver);
+            // Đặt màu cho các designer panel (override Color.White / BorderStyle từ .Designer.cs)
+            tableLayoutPanel1.BackColor    = Palette.AppBg;
+            tableLayoutPanel3.BackColor    = Palette.AppBg;
+            tableLayoutPanel4.BackColor    = Palette.AppBg;
+            tableLayoutPanelTrend.BackColor = Palette.AppBg;
+            panelTrendButtons.BackColor    = Palette.PanelBg;
+            panelChartHost.BackColor       = Palette.AppBg;
+            pictureBox1.BorderStyle        = BorderStyle.None;
+            pictureBox2.BorderStyle        = BorderStyle.None;
 
-            _mainTabControl = new TabControl
-            {
-                Dock        = DockStyle.Fill,
-                Appearance  = TabAppearance.FlatButtons,
-                ItemSize    = new Size(0, 1),
-                SizeMode    = TabSizeMode.Fixed
-            };
-
-            var tabOverview = new TabPage("Overview") { BackColor = Palette.AppBg };
-            tableLayoutPanel1.Parent = tabOverview;
-            tableLayoutPanel1.Dock   = DockStyle.Fill;
+            tableLayoutPanel1.Dock    = DockStyle.Fill;
             tableLayoutPanel1.Visible = true;
-            _mainTabControl.TabPages.Add(tabOverview);
 
-            root.Controls.Add(_mainTabControl);
+            root.Controls.Add(tableLayoutPanel1);
             root.Controls.Add(pnlBottom);
-            root.Controls.Add(_topMenu);
+            root.Controls.Add(headerPanel);
         }
 
         // Thêm nhãn tên dự án vào đầu panel phải (tableLayoutPanel4)
@@ -246,12 +264,16 @@ namespace HelideckVer2
                 Height    = 30,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Font      = new Font("Segoe UI", 11, FontStyle.Bold),
-                BackColor = Color.FromArgb(30, 50, 85),
-                ForeColor = Color.White,
+                BackColor = Palette.SectionHdrBg,
+                ForeColor = Palette.TextValue,
                 Padding   = new Padding(8, 0, 0, 0)
             };
 
-            // Chèn label vào panel chứa ảnh chiếu (tableLayoutPanel4)
+            // Ảnh vessel 38%, radar 62%
+            tableLayoutPanel4.ColumnStyles.Clear();
+            tableLayoutPanel4.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38F));
+            tableLayoutPanel4.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62F));
+
             tableLayoutPanel4.Controls.Add(lblTitle, 0, 0);
             tableLayoutPanel4.SetColumnSpan(lblTitle, 2);
 
@@ -274,7 +296,7 @@ namespace HelideckVer2
             tableLayoutPanel1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 75F));
 
             tableLayoutPanel2.CellBorderStyle = TableLayoutPanelCellBorderStyle.None;
-            tableLayoutPanel2.BackColor       = Color.FromArgb(18, 26, 40);
+            tableLayoutPanel2.BackColor       = Palette.CardBg;
             tableLayoutPanel2.Padding         = new Padding(4);
             tableLayoutPanel2.Controls.Clear();
             tableLayoutPanel2.ColumnStyles.Clear();
@@ -303,9 +325,9 @@ namespace HelideckVer2
             // Đơn vị hiển thị riêng ở label nhỏ bên dưới – không nhúng vào text số
             string[] unitTexts = { "", "kn", "°", "°", "°", "cm", "s", "m/s", "°" };
 
-            Color cardBg  = Color.FromArgb(28, 42, 62);
-            Color sepClr  = Color.FromArgb(50, 70, 100);
-            Color titleFg = Color.FromArgb(150, 170, 200);
+            Color cardBg  = Palette.CardFace;
+            Color sepClr  = Palette.BorderCard;
+            Color titleFg = Palette.TextLabel;
 
             for (int i = 0; i < 9; i++)
             {
@@ -323,10 +345,10 @@ namespace HelideckVer2
                 values[i].Dock      = DockStyle.Fill;
                 values[i].TextAlign = ContentAlignment.MiddleCenter;
                 values[i].BackColor = cardBg;
-                values[i].ForeColor = Color.FromArgb(100, 220, 130);
+                values[i].ForeColor = Palette.OkFg;
 
-                if (i == 0) values[i].ForeColor = Color.FromArgb(100, 180, 255); // POSITION – blue
-                if (i == 5) values[i].ForeColor = Color.FromArgb(255, 160, 60);  // HEAVE – orange
+                if (i == 0) values[i].ForeColor = Palette.TextGps;      // POSITION – cyan
+                if (i == 5) values[i].ForeColor = Palette.SeriesHeave;  // HEAVE – coral
 
                 if (i == 7) values[i].Click += lblWindSpeed_Click;
                 if (i == 3) values[i].Click += lblRoll_Click;
@@ -342,7 +364,7 @@ namespace HelideckVer2
                     Height    = hasUnit ? 18 : 0,
                     TextAlign = ContentAlignment.MiddleCenter,
                     BackColor = cardBg,
-                    ForeColor = Color.FromArgb(80, 120, 160),
+                    ForeColor = Palette.TextDim,
                     Font      = new Font("Segoe UI", 9f)
                 };
                 _unitLabels[i] = unitLbl;
@@ -384,7 +406,7 @@ namespace HelideckVer2
                     using var pen  = new Pen(sepClr, 1);
                     g.DrawPath(pen, path);
                     int lineY = titles[idx].Height;
-                    using var sp = new Pen(Color.FromArgb(45, 65, 90), 1);
+                    using var sp = new Pen(Palette.BorderPanel, 1);
                     g.DrawLine(sp, 8, lineY, card.Width - 8, lineY);
                 };
 
@@ -476,6 +498,7 @@ namespace HelideckVer2
             _healthTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             _healthTimer.Tick += (s, e) =>
             {
+                _lblClock.Text = DateTime.Now.ToString("HH:mm:ss");
                 var snap = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
                 foreach (var row in snap.TaskRows)
                 {
@@ -590,20 +613,20 @@ namespace HelideckVer2
             if (unacked != null)
             {
                 lblAlarmStatus.Text      = $"⚠ ALARM: {unacked.Id}";
-                lblAlarmStatus.BackColor = Color.DarkRed;
-                lblAlarmStatus.ForeColor = Color.White;
+                lblAlarmStatus.BackColor = Palette.AlarmActiveBg;
+                lblAlarmStatus.ForeColor = Palette.AlarmActiveFg;
             }
             else if (acked != null)
             {
                 lblAlarmStatus.Text      = $"ACK: {acked.Id}";
-                lblAlarmStatus.BackColor = Color.DarkOrange;
-                lblAlarmStatus.ForeColor = Color.Black;
+                lblAlarmStatus.BackColor = Palette.AlarmAckBg;
+                lblAlarmStatus.ForeColor = Palette.AlarmAckFg;
             }
             else
             {
                 lblAlarmStatus.Text      = "✔ NORMAL";
-                lblAlarmStatus.BackColor = Color.FromArgb(20, 80, 40);
-                lblAlarmStatus.ForeColor = Color.Lime;
+                lblAlarmStatus.BackColor = Palette.AlarmNormalBg;
+                lblAlarmStatus.ForeColor = Palette.AlarmNormalFg;
             }
         }
 
@@ -622,21 +645,21 @@ namespace HelideckVer2
 
         private void OnAlarmRaised(Alarm a)
         {
-            SetAlarmColor(a.Id, Color.Red);
+            SetAlarmColor(a.Id, Palette.AlarmActiveFg);
             RefreshAlarmBanner();
             SetAlarmRow(a.Id, "Active");
             _logger.LogAlarmEvent("RAISED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider());
         }
         private void OnAlarmCleared(Alarm a)
         {
-            SetAlarmColor(a.Id, Color.FromArgb(100, 220, 130));
+            SetAlarmColor(a.Id, Palette.OkFg);
             RefreshAlarmBanner();
             SetAlarmRow(a.Id, "Normal");
             _logger.LogAlarmEvent("CLEARED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider());
         }
         private void OnAlarmAcked(Alarm a)
         {
-            SetAlarmColor(a.Id, Color.Orange);
+            SetAlarmColor(a.Id, Palette.AlarmAckFg);
             RefreshAlarmBanner();
             SetAlarmRow(a.Id, "Ack");
             _logger.LogAlarmEvent("ACKED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider());
@@ -661,21 +684,21 @@ namespace HelideckVer2
         {
             panelTrendButtons.Controls.Clear();
 
-            Button btnTrend1 = CreateMenuButton("TREND R/P/H", Color.SteelBlue);
+            Button btnTrend1 = CreateMenuButton("TREND R/P/H", Palette.BtnPrimaryBg, Palette.BtnPrimaryFg);
             btnTrend1.Click += (s, e) =>
             {
                 _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Motion;
                 _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
             };
 
-            Button btnTrend2 = CreateMenuButton("TREND WIND", Color.SteelBlue);
+            Button btnTrend2 = CreateMenuButton("TREND WIND", Palette.BtnPrimaryBg, Palette.BtnPrimaryFg);
             btnTrend2.Click += (s, e) =>
             {
                 _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Wind;
                 _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
             };
 
-            Button btnZoom = CreateMenuButton("VIEW: 2 Min", Color.DodgerBlue);
+            Button btnZoom = CreateMenuButton("VIEW: 2 Min", Palette.BtnActiveBg, Palette.BtnActiveFg);
             btnZoom.Click += (s, e) =>
             {
                 _currentViewMinutes = _currentViewMinutes == 2.0 ? 20.0 : 2.0;
@@ -683,12 +706,13 @@ namespace HelideckVer2
                 _trendControl.SetViewWindow(_currentViewMinutes);
             };
 
-            Button btnToggleSplit = CreateMenuButton("MODE: COMBINED", Color.ForestGreen);
+            Button btnToggleSplit = CreateMenuButton("MODE: COMBINED", Palette.OkBg, Palette.OkFg);
             btnToggleSplit.Click += (s, e) =>
             {
-                _isSeparateTrend       = !_isSeparateTrend;
-                btnToggleSplit.Text    = _isSeparateTrend ? "MODE: SPLIT" : "MODE: COMBINED";
-                btnToggleSplit.BackColor = _isSeparateTrend ? Color.DarkOrange : Color.ForestGreen;
+                _isSeparateTrend         = !_isSeparateTrend;
+                btnToggleSplit.Text      = _isSeparateTrend ? "MODE: SPLIT" : "MODE: COMBINED";
+                btnToggleSplit.BackColor = _isSeparateTrend ? Palette.BtnSettingsBg : Palette.OkBg;
+                btnToggleSplit.ForeColor = _isSeparateTrend ? Palette.BtnSettingsFg : Palette.OkFg;
                 _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
             };
 
@@ -706,16 +730,25 @@ namespace HelideckVer2
 
         private void UpdateBadge(Label lbl, string name, bool isStale, double age)
         {
-            if (age > 900)  { lbl.Text = $"{name}: WAIT"; lbl.BackColor = Color.FromArgb(60, 60, 60); }
-            else if (isStale){ lbl.Text = $"{name}: LOST"; lbl.BackColor = Color.DarkRed; }
-            else             { lbl.Text = $"{name}: OK";   lbl.BackColor = Color.FromArgb(20, 100, 40); }
+            if (age > 900)   { lbl.Text = $"{name}: WAIT"; lbl.BackColor = Palette.WaitBg; lbl.ForeColor = Palette.WaitFg; }
+            else if (isStale){ lbl.Text = $"{name}: LOST"; lbl.BackColor = Palette.LostBg; lbl.ForeColor = Palette.LostFg; }
+            else             { lbl.Text = $"{name}: OK";   lbl.BackColor = Palette.OkBg;   lbl.ForeColor = Palette.OkFg; }
         }
 
         private void UpdateLabelStatus(Label lbl, bool isAlive)
         {
             if (lbl == null) return;
-            if (!isAlive) lbl.ForeColor = Color.Gray;
-            else if (lbl.ForeColor == Color.Gray) lbl.ForeColor = Color.FromArgb(100, 220, 130);
+            if (!isAlive) lbl.ForeColor = Palette.TextDim;
+            else if (lbl.ForeColor == Palette.TextDim) lbl.ForeColor = Palette.OkFg;
+        }
+
+        private static void AddBadgeBorder(Label lbl)
+        {
+            lbl.Paint += (s, e) =>
+            {
+                using var pen = new Pen(Palette.BorderCard, 1);
+                e.Graphics.DrawRectangle(pen, 0, 0, lbl.Width - 1, lbl.Height - 1);
+            };
         }
 
         private void EnsureAlarmBadge()
@@ -727,28 +760,34 @@ namespace HelideckVer2
                 Width     = 220, Height = 30,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font      = new Font("Segoe UI", 10, FontStyle.Bold),
-                BackColor = Color.FromArgb(20, 80, 40),
-                ForeColor = Color.Lime,
+                BackColor = Palette.AlarmNormalBg,
+                ForeColor = Palette.AlarmNormalFg,
                 Text      = "✔ NORMAL",
                 Margin    = new Padding(16, 7, 5, 5)
             };
+            AddBadgeBorder(lblAlarmStatus);
             _topMenu.Controls.Add(lblAlarmStatus);
         }
 
         private void SetupStatusBadges()
         {
-            Label CreateBadge(string text) => new Label
+            Label CreateBadge(string text)
             {
-                Text        = text,
-                AutoSize    = false,
-                Size        = new Size(130, 30),
-                TextAlign   = ContentAlignment.MiddleCenter,
-                Font        = new Font("Segoe UI", 9, FontStyle.Bold),
-                BackColor   = Color.FromArgb(60, 60, 60),
-                ForeColor   = Color.White,
-                Margin      = new Padding(4, 7, 0, 5),
-                BorderStyle = BorderStyle.None
-            };
+                var lbl = new Label
+                {
+                    Text        = text,
+                    AutoSize    = false,
+                    Size        = new Size(130, 30),
+                    TextAlign   = ContentAlignment.MiddleCenter,
+                    Font        = new Font("Segoe UI", 9, FontStyle.Bold),
+                    BackColor   = Palette.WaitBg,
+                    ForeColor   = Palette.WaitFg,
+                    Margin      = new Padding(4, 7, 0, 5),
+                    BorderStyle = BorderStyle.None
+                };
+                AddBadgeBorder(lbl);
+                return lbl;
+            }
 
             lblStatGPS     = CreateBadge("GPS: WAIT");
             lblStatWind    = CreateBadge("WIND: WAIT");
@@ -757,19 +796,25 @@ namespace HelideckVer2
             _topMenu.Controls.AddRange(new Control[] { lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading });
         }
 
-        private Button CreateMenuButton(string text, Color bg) => new Button
+        private Button CreateMenuButton(string text, Color bg, Color? fg = null)
         {
-            Text        = text,
-            BackColor   = bg,
-            ForeColor   = Color.White,
-            FlatStyle   = FlatStyle.Flat,
-            AutoSize    = true,
-            MinimumSize = new Size(0, 30),
-            MaximumSize = new Size(0, 30),
-            Padding     = new Padding(10, 0, 10, 0),
-            Margin      = new Padding(4, 2, 4, 2),
-            Font        = new Font("Segoe UI", 9, FontStyle.Bold)
-        };
+            var btn = new Button
+            {
+                Text        = text,
+                BackColor   = bg,
+                ForeColor   = fg ?? Color.White,
+                FlatStyle   = FlatStyle.Flat,
+                AutoSize    = true,
+                MinimumSize = new Size(0, 30),
+                MaximumSize = new Size(0, 30),
+                Padding     = new Padding(10, 0, 10, 0),
+                Margin      = new Padding(4, 2, 4, 2),
+                Font        = new Font("Segoe UI", 9, FontStyle.Bold)
+            };
+            btn.FlatAppearance.BorderColor = Palette.BorderCard;
+            btn.FlatAppearance.BorderSize  = 1;
+            return btn;
+        }
 
         private void LoadImageFromFile(PictureBox picBox, string fileName)
         {
@@ -837,6 +882,13 @@ namespace HelideckVer2
         private void lblHeading_Click(object sender, EventArgs e) { }
         private void lblHeaveCycle_Click(object sender, EventArgs e) { }
         private void tableLayoutPanel3_Paint(object sender, PaintEventArgs e) { }
-        private void tableLayoutPanel1_Paint(object sender, PaintEventArgs e) { }
+        private void tableLayoutPanel1_Paint(object sender, PaintEventArgs e)
+        {
+            var widths = tableLayoutPanel1.GetColumnWidths();
+            if (widths.Length < 2) return;
+            int x = widths[0];
+            using var pen = new Pen(Palette.BorderCard, 2);
+            e.Graphics.DrawLine(pen, x, 0, x, tableLayoutPanel1.Height);
+        }
     }
 }
