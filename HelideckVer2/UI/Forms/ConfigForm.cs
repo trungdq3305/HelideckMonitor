@@ -40,7 +40,7 @@ namespace HelideckVer2
             new DeviceTask { TaskName = "WIND",    PortName = "COM2", BaudRate = 4800 },
             new DeviceTask { TaskName = "R/P/H",   PortName = "COM3", BaudRate = 9600 },
             new DeviceTask { TaskName = "HEADING", PortName = "COM4", BaudRate = 4800 },
-            new DeviceTask { TaskName = "AUX",     PortName = "COM5", BaudRate = 4800 }
+            new DeviceTask { TaskName = "METEO",   PortName = "COM5", BaudRate = 9600 }
         };
 
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]

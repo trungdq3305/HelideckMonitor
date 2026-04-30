@@ -10,7 +10,7 @@ namespace HelideckVer2.UI.Controls
     public partial class TrendChartControl : UserControl
     {
         public struct TrendPoint { public double X, V1, V2, V3; }
-        public enum TrendMode { Motion, Wind }
+        public enum TrendMode { Motion, Wind, Env }
 
         private Chart _chart;
         private TrendMode _currentMode = TrendMode.Motion;
@@ -20,7 +20,8 @@ namespace HelideckVer2.UI.Controls
         private bool _isLiveMode = true;
         private bool _isProgrammaticScroll = false;
         private readonly List<TrendPoint> _motionBuffer = new List<TrendPoint>();
-        private readonly List<TrendPoint> _windBuffer = new List<TrendPoint>();
+        private readonly List<TrendPoint> _windBuffer   = new List<TrendPoint>();
+        private readonly List<TrendPoint> _envBuffer    = new List<TrendPoint>();
 
         private string _hoverText = "";
         private Point _hoverPoint = Point.Empty;
@@ -85,6 +86,24 @@ namespace HelideckVer2.UI.Controls
                     AddSeries("WindDir",   "AreaWindDir",   Palette.SeriesWDir);
                     AlignAreas("AreaWindDir", "AreaWindSpeed");
                 }
+            }
+            else if (mode == TrendMode.Env)
+            {
+                AddArea("MainArea");
+                AddSeries("Temp", "MainArea", Palette.SeriesRoll);
+                var humSeries = AddSeries("Humidity", "MainArea", Palette.SeriesWSpeed);
+                humSeries.YAxisType = AxisType.Secondary;
+
+                var area = _chart.ChartAreas["MainArea"];
+                area.AxisY.Title                    = "°C";
+                area.AxisY.TitleForeColor           = Palette.SeriesRoll;
+                area.AxisY2.Enabled                 = AxisEnabled.True;
+                area.AxisY2.Title                   = "%";
+                area.AxisY2.TitleForeColor          = Palette.SeriesWSpeed;
+                area.AxisY2.LabelStyle.ForeColor    = Palette.SeriesWSpeed;
+                area.AxisY2.LineColor               = Palette.SeriesWSpeed;
+                area.AxisY2.MajorTickMark.LineColor = Palette.SeriesWSpeed;
+                area.AxisY2.MajorGrid.LineColor     = Color.Transparent;
             }
             else
             {
@@ -187,6 +206,17 @@ namespace HelideckVer2.UI.Controls
             }
         }
 
+        public void PushEnvData(double temp, double humidity)
+        {
+            lock (_envBuffer)
+            {
+                double now = DateTime.Now.ToOADate();
+                _envBuffer.Add(new TrendPoint { X = now, V1 = temp, V2 = humidity });
+                if (_envBuffer.Count > 0 && _envBuffer[0].X < DateTime.Now.AddMinutes(-BufferMinutes).ToOADate())
+                    _envBuffer.RemoveAt(0);
+            }
+        }
+
         public void PushWindData(double speed, double dir)
         {
             lock (_windBuffer)
@@ -213,6 +243,11 @@ namespace HelideckVer2.UI.Controls
                 UpdateSeries("Roll",  _motionBuffer, 1);
                 UpdateSeries("Pitch", _motionBuffer, 2);
                 UpdateSeries("Heave", _motionBuffer, 3);
+            }
+            else if (_currentMode == TrendMode.Env)
+            {
+                UpdateSeries("Temp",     _envBuffer, 1);
+                UpdateSeries("Humidity", _envBuffer, 2);
             }
             else
             {
@@ -279,6 +314,15 @@ namespace HelideckVer2.UI.Controls
                     if (closest.X != 0)
                     {
                         tip = $"Time: {DateTime.FromOADate(closest.X):HH:mm:ss}\nRoll: {closest.V1:0.00}°\nPitch: {closest.V2:0.00}°\nHeave: {closest.V3:0.0} cm";
+                        hasData = true;
+                    }
+                }
+                else if (_currentMode == TrendMode.Env)
+                {
+                    TrendPoint closest = GetClosestPoint(_envBuffer, xVal);
+                    if (closest.X != 0)
+                    {
+                        tip = $"Time: {DateTime.FromOADate(closest.X):HH:mm:ss}\nTemp: {closest.V1:0.0} °C\nHumidity: {closest.V2:0.0} %";
                         hasData = true;
                     }
                 }

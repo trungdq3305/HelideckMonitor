@@ -52,8 +52,9 @@ namespace HelideckVer2
         private double _pitchOffset = 0.0;
         private double _heaveArm    = 10.0;
 
-        private Label lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading;
-        private Label[] _unitLabels = new Label[9];
+        private Label lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading, lblStatMeteo;
+        private Label _lblTemp, _lblHumidity;
+        private Label[] _unitLabels = new Label[11];
 
         private HelideckVer2.UI.Controls.TrendChartControl _trendControl;
 
@@ -306,31 +307,38 @@ namespace HelideckVer2
             tableLayoutPanel2.ColumnCount = 2;
             tableLayoutPanel2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             tableLayoutPanel2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            tableLayoutPanel2.RowCount = 5;
-            for (int i = 0; i < 5; i++)
-                tableLayoutPanel2.RowStyles.Add(new RowStyle(SizeType.Percent, 20F));
+            tableLayoutPanel2.RowCount = 6;
+            for (int i = 0; i < 6; i++)
+                tableLayoutPanel2.RowStyles.Add(new RowStyle(SizeType.Percent, 100F / 6));
 
             // Nhãn và giá trị
-            // items[0]=POSITION(full-width), [1-8] = SPEED,HEADING,ROLL,PITCH,HEAVE,H.PERIOD,WIND SPD, WIND DIR
-            Label[] titles = { label1, label2, label3, label4, label5, label6, label7, label8, label9 };
+            // items[0]=POSITION(full-width), [1-8]=SPEED..WIND DIR, [9-10]=TEMP,HUMIDITY (METEO COM5)
+            var lblTitleTemp     = new Label();
+            var lblTitleHumidity = new Label();
+            _lblTemp     = new Label();
+            _lblHumidity = new Label();
+
+            Label[] titles = { label1, label2, label3, label4, label5, label6, label7, label8, label9, lblTitleTemp, lblTitleHumidity };
             string[] headers = {
                 "POSITION", "SPEED", "HEADING",
                 "ROLL", "PITCH", "HEAVE",
-                "H.PERIOD", "WIND SPD", "WIND DIR"
+                "H.PERIOD", "WIND SPD", "WIND DIR",
+                "TEMP", "HUMIDITY"
             };
             Label[] values = {
                 lblPosition, lblSpeed, lblHeading,
                 lblRoll, lblPitch, lblHeave,
-                lblHeaveCycle, lblWindSpeed, lblWindRelated
+                lblHeaveCycle, lblWindSpeed, lblWindRelated,
+                _lblTemp, _lblHumidity
             };
             // Đơn vị hiển thị riêng ở label nhỏ bên dưới – không nhúng vào text số
-            string[] unitTexts = { "", "kn", "°", "°", "°", "cm", "s", "m/s", "°" };
+            string[] unitTexts = { "", "kn", "°", "°", "°", "cm", "s", "m/s", "°", "°C", "%" };
 
             Color cardBg  = Palette.CardFace;
             Color sepClr  = Palette.BorderCard;
             Color titleFg = Palette.TextLabel;
 
-            for (int i = 0; i < 9; i++)
+            for (int i = 0; i < 11; i++)
             {
                 if (titles[i] == null || values[i] == null) continue;
 
@@ -348,8 +356,10 @@ namespace HelideckVer2
                 values[i].BackColor = cardBg;
                 values[i].ForeColor = Palette.OkFg;
 
-                if (i == 0) values[i].ForeColor = Palette.TextGps;      // POSITION – cyan
-                if (i == 5) values[i].ForeColor = Palette.SeriesHeave;  // HEAVE – coral
+                if (i == 0)  values[i].ForeColor = Palette.TextGps;       // POSITION
+                if (i == 5)  values[i].ForeColor = Palette.SeriesHeave;  // HEAVE
+                if (i == 9)  values[i].ForeColor = Palette.SeriesRoll;   // TEMP
+                if (i == 10) values[i].ForeColor = Palette.SeriesWSpeed; // HUMIDITY
 
                 if (i == 7) values[i].Click += lblWindSpeed_Click;
                 if (i == 3) values[i].Click += lblRoll_Click;
@@ -525,6 +535,11 @@ namespace HelideckVer2
                         case "HEADING":
                             UpdateBadge(lblStatHeading, "HDG", row.IsStale, row.Age);
                             UpdateLabelStatus(lblHeading, !row.IsStale);
+                            break;
+                        case "METEO":
+                            UpdateBadge(lblStatMeteo, "METEO", row.IsStale, row.Age);
+                            UpdateLabelStatus(_lblTemp,     !row.IsStale);
+                            UpdateLabelStatus(_lblHumidity, !row.IsStale);
                             break;
                     }
                 }
@@ -717,7 +732,14 @@ namespace HelideckVer2
                 _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
             };
 
-            panelTrendButtons.Controls.AddRange(new Control[] { btnTrend1, btnTrend2, btnToggleSplit, btnZoom });
+            Button btnTrend3 = CreateMenuButton("TREND ENV", Palette.BtnPrimaryBg, Palette.BtnPrimaryFg);
+            btnTrend3.Click += (s, e) =>
+            {
+                _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Env;
+                _trendControl.SetMode(_currentTrendMode, false);
+            };
+
+            panelTrendButtons.Controls.AddRange(new Control[] { btnTrend1, btnTrend2, btnTrend3, btnToggleSplit, btnZoom });
         }
 
         // ── UTILITY ───────────────────────────────────────────────────────────
@@ -794,7 +816,8 @@ namespace HelideckVer2
             lblStatWind    = CreateBadge("WIND: WAIT");
             lblStatMotion  = CreateBadge("R/P/H: WAIT");
             lblStatHeading = CreateBadge("HDG: WAIT");
-            _topMenu.Controls.AddRange(new Control[] { lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading });
+            lblStatMeteo   = CreateBadge("METEO: WAIT");
+            _topMenu.Controls.AddRange(new Control[] { lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading, lblStatMeteo });
         }
 
         private Button CreateMenuButton(string text, Color bg, Color? fg = null)

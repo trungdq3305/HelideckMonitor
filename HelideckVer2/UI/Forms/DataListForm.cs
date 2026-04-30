@@ -22,7 +22,7 @@ namespace HelideckVer2
             "Wind Speed and Angle",
             "Roll / Pitch / Heave",
             "Heading, True",
-            "Auxiliary data"
+            "Meteorological: Temp / Humidity / Pressure"
         };
 
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]

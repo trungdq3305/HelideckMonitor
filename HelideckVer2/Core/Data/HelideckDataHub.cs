@@ -30,12 +30,17 @@ namespace HelideckVer2.Core.Data
         public string  GpsLat       { get; private set; } = "NO FIX";
         public string  GpsLon       { get; private set; } = "NO FIX";
 
+        // METEO (COM5) — populated when NMEA format is known
+        public double TempCelsius { get; private set; }
+        public double HumidityPct { get; private set; }
+        public double PressureHPa { get; private set; }
+
         private HelideckDataHub()
         {
             _sensorData   = new Dictionary<string, (string, DateTime?)>();
             _alarmStatus  = new Dictionary<string, (string, DateTime?)>();
 
-            string[] tasks = { "GPS", "WIND", "R/P/H", "HEADING", "AUX" };
+            string[] tasks = { "GPS", "WIND", "R/P/H", "HEADING", "METEO" };
             foreach (var t in tasks)
             {
                 _sensorData[t]  = ("", null);
@@ -78,6 +83,11 @@ namespace HelideckVer2.Core.Data
                 GpsLat       = lat ?? "NO FIX";
                 GpsLon       = lon ?? "NO FIX";
             }
+        }
+
+        public void UpdateMeteoData(double temp, double humidity, double pressure)
+        {
+            lock (_lockData) { TempCelsius = temp; HumidityPct = humidity; PressureHPa = pressure; }
         }
 
         public void UpdateHeavePeriod(double period)
@@ -131,6 +141,9 @@ namespace HelideckVer2.Core.Data
                 snap.GpsSpeedKnot  = GpsSpeedKnot;
                 snap.GpsLat        = GpsLat;
                 snap.GpsLon        = GpsLon;
+                snap.TempCelsius   = TempCelsius;
+                snap.HumidityPct   = HumidityPct;
+                snap.PressureHPa   = PressureHPa;
 
                 return snap;
             }
@@ -151,6 +164,9 @@ namespace HelideckVer2.Core.Data
             public double GpsSpeedKnot   { get; set; }
             public string GpsLat         { get; set; } = "NO FIX";
             public string GpsLon         { get; set; } = "NO FIX";
+            public double TempCelsius    { get; set; }
+            public double HumidityPct    { get; set; }
+            public double PressureHPa    { get; set; }
         }
 
         public class SnapshotRow
