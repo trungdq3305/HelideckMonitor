@@ -102,7 +102,7 @@ namespace HelideckVer2.Services.Parsing
                 var style = NumberStyles.Any;
 
                 // Nếu port có danh sách câu được phép, bỏ qua câu không nằm trong danh sách.
-                if (_portAllowedSentences.TryGetValue(portName, out string[]? allowed))
+                if (_portAllowedSentences.TryGetValue(portName, out string[] allowed))
                 {
                     bool matched = false;
                     foreach (var suffix in allowed)

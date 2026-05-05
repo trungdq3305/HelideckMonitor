@@ -99,15 +99,13 @@ namespace HelideckVer2.UI.Controls
             g.Restore(stateShip);
 
             // --- VẼ MŨI TÊN GIÓ ---
-            // windDir (relative to bow) + heading = góc la bàn thật nguồn gió.
-            // Không +180: arrow đặt đúng phía nguồn gió, đầu chỉ vào tàu (tâm).
             float trueWindDir = (float)((_heading + _windDir) % 360);
             var stateWind = g.Save();
             g.TranslateTransform(center.X, center.Y);
             g.RotateTransform(trueWindDir);
 
-            float arrowOuter = radius * 0.75f;  // đuôi ở vành (phía nguồn gió)
-            float arrowInner = radius * 0.35f;  // đầu mũi hướng vào tàu
+            float arrowOuter = radius * 0.75f;
+            float arrowInner = radius * 0.35f;
             float headLen    = radius * 0.15f;
             float headWidth  = radius * 0.05f;
 
@@ -116,9 +114,9 @@ namespace HelideckVer2.UI.Controls
                 g.DrawLine(pWindTail, 0, -arrowOuter, 0, -arrowInner - headLen);
 
             PointF[] arrowHead = {
-                new PointF(0, -arrowInner),                    // đỉnh (gần tàu)
-                new PointF(-headWidth, -arrowInner - headLen), // cánh trái
-                new PointF( headWidth, -arrowInner - headLen)  // cánh phải
+                new PointF(0, -arrowInner),
+                new PointF(-headWidth, -arrowInner - headLen),
+                new PointF( headWidth, -arrowInner - headLen)
             };
 
             using (SolidBrush bWind = new SolidBrush(Palette.RadarWindArrow)) g.FillPolygon(bWind, arrowHead);

@@ -47,6 +47,7 @@ namespace HelideckVer2
 
         private System.Windows.Forms.Timer _healthTimer, _snapshotTimer, _chartUpdateTimer;
         private System.Windows.Forms.Timer _uiUpdateTimer;
+        private MeteoService _meteoService;
 
         private double _rollOffset  = 0.0;
         private double _pitchOffset = 0.0;
@@ -131,6 +132,15 @@ namespace HelideckVer2
             {
                 _comEngine.Initialize(_taskList);
             }
+
+            // MeteoService — Modbus RTU / RK330-01 (COM5)
+            var meteoTask = ConfigForm.Tasks.Find(t => t.TaskName == "METEO");
+            if (meteoTask != null)
+            {
+                _meteoService = new MeteoService(meteoTask.PortName, meteoTask.BaudRate);
+                _meteoService.Start();
+            }
+            this.FormClosed += (s, e) => _meteoService?.Stop();
 
             // Alarm Engine
             _alarmEngine = new AlarmEngine();
@@ -582,7 +592,17 @@ namespace HelideckVer2
                 ? $"{snap.HeavePeriodSec:0.0}"
                 : "---";
 
-            // 5. Radar
+            // 5. METEO labels + ENV chart
+            var meteoRow = snap.TaskRows.Find(r => r.TaskName == "METEO");
+            bool meteoFresh = meteoRow != null && meteoRow.Age < 900 && !meteoRow.IsStale;
+            if (_lblTemp != null)
+                _lblTemp.Text     = meteoFresh ? $"{snap.TempCelsius:0.0}" : "---";
+            if (_lblHumidity != null)
+                _lblHumidity.Text = meteoFresh ? $"{snap.HumidityPct:0.0}"  : "---";
+            if (meteoFresh)
+                _trendControl.PushEnvData(snap.TempCelsius, snap.HumidityPct);
+
+            // 6. Radar
             _radarControl.UpdateRadar(snap.Heading, snap.WindDirDeg);
 
             // 6. Tính chu kỳ Heave (zero-crossing âm→dương trên giá trị CÓ DẤU)
@@ -736,7 +756,7 @@ namespace HelideckVer2
             btnTrend3.Click += (s, e) =>
             {
                 _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Env;
-                _trendControl.SetMode(_currentTrendMode, false);
+                _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
             };
 
             panelTrendButtons.Controls.AddRange(new Control[] { btnTrend1, btnTrend2, btnTrend3, btnToggleSplit, btnZoom });

@@ -20,7 +20,8 @@ namespace HelideckVer2
         // ── COM Config tab ───────────────────────────────────────────────────
         private DataGridView dgvComConfig;
         private CheckBox chkSimulationMode;
-        private CheckBox chkLightTheme;
+        private Button _btnDay, _btnNight;
+        private bool _pendingIsLight;
 
         // ── Vessel Image tab ─────────────────────────────────────────────────
         private PictureBox _imgPreview;
@@ -133,19 +134,31 @@ namespace HelideckVer2
             btnSave.FlatAppearance.BorderSize  = 1;
             btnSave.Click += BtnSave_Click;
 
-            chkLightTheme = new CheckBox
+            _btnDay = new Button
             {
-                Text      = "☀  Light Theme",
-                AutoSize  = true,
-                Font      = new Font("Segoe UI", 9, FontStyle.Bold),
-                ForeColor = Palette.TextLabel,
-                BackColor = Color.Transparent,
+                Text      = "☀  DAY",
+                Width     = 95,
                 Dock      = DockStyle.Left,
-                Padding   = new Padding(16, 8, 0, 0)
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Segoe UI", 9, FontStyle.Bold)
             };
+            _btnDay.FlatAppearance.BorderSize = 1;
+            _btnDay.Click += (s, e) => { _pendingIsLight = true;  UpdateThemeButtons(); };
+
+            _btnNight = new Button
+            {
+                Text      = "🌙  NIGHT",
+                Width     = 105,
+                Dock      = DockStyle.Left,
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Segoe UI", 9, FontStyle.Bold)
+            };
+            _btnNight.FlatAppearance.BorderSize = 1;
+            _btnNight.Click += (s, e) => { _pendingIsLight = false; UpdateThemeButtons(); };
 
             pnlBottom.Controls.Add(chkSimulationMode);
-            pnlBottom.Controls.Add(chkLightTheme);
+            pnlBottom.Controls.Add(_btnDay);
+            pnlBottom.Controls.Add(_btnNight);
             pnlBottom.Controls.Add(btnSave);
 
             // ── Tab header bar (replaces TabControl to eliminate white border) ──
@@ -588,6 +601,40 @@ namespace HelideckVer2
             Process.Start("explorer.exe", path);
         }
 
+        // ── THEME BUTTONS ─────────────────────────────────────────────────────
+
+        private void UpdateThemeButtons()
+        {
+            if (_btnDay == null || _btnNight == null) return;
+
+            if (_pendingIsLight)
+            {
+                // DAY mode active → DAY disabled (highlighted), NIGHT enabled
+                _btnDay.Enabled   = false;
+                _btnDay.BackColor = Color.FromArgb(0xFF, 0xE0, 0x60);
+                _btnDay.ForeColor = Color.FromArgb(0x3C, 0x22, 0x00);
+                _btnDay.FlatAppearance.BorderColor = Color.FromArgb(0xCC, 0xAA, 0x00);
+
+                _btnNight.Enabled   = true;
+                _btnNight.BackColor = Palette.BtnPrimaryBg;
+                _btnNight.ForeColor = Palette.BtnPrimaryFg;
+                _btnNight.FlatAppearance.BorderColor = Palette.BorderCard;
+            }
+            else
+            {
+                // NIGHT mode active → NIGHT disabled (highlighted), DAY enabled
+                _btnNight.Enabled   = false;
+                _btnNight.BackColor = Color.FromArgb(0x10, 0x22, 0x50);
+                _btnNight.ForeColor = Color.FromArgb(0x90, 0xB8, 0xFF);
+                _btnNight.FlatAppearance.BorderColor = Color.FromArgb(0x3A, 0x60, 0xB0);
+
+                _btnDay.Enabled   = true;
+                _btnDay.BackColor = Palette.BtnPrimaryBg;
+                _btnDay.ForeColor = Palette.BtnPrimaryFg;
+                _btnDay.FlatAppearance.BorderColor = Palette.BorderCard;
+            }
+        }
+
         // ── LOAD / SAVE ───────────────────────────────────────────────────────
 
         private void LoadData()
@@ -597,7 +644,8 @@ namespace HelideckVer2
             numPitch.Value = (decimal)SystemConfig.PMax;
             numHeave.Value = (decimal)SystemConfig.HMax;
             chkSimulationMode.Checked = SystemConfig.IsSimulationMode;
-            chkLightTheme.Checked     = SystemConfig.IsLightTheme;
+            _pendingIsLight           = SystemConfig.IsLightTheme;
+            UpdateThemeButtons();
 
             dgvComConfig.Rows.Clear();
             foreach (var t in Tasks)
@@ -611,8 +659,8 @@ namespace HelideckVer2
             SystemConfig.PMax = (double)numPitch.Value;
             SystemConfig.HMax = (double)numHeave.Value;
             SystemConfig.IsSimulationMode = chkSimulationMode.Checked;
-            bool themeChanged = SystemConfig.IsLightTheme != chkLightTheme.Checked;
-            SystemConfig.IsLightTheme = chkLightTheme.Checked;
+            bool themeChanged = SystemConfig.IsLightTheme != _pendingIsLight;
+            SystemConfig.IsLightTheme = _pendingIsLight;
 
             foreach (DataGridViewRow row in dgvComConfig.Rows)
             {

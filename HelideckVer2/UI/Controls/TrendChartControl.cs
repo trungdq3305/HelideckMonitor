@@ -79,6 +79,13 @@ namespace HelideckVer2.UI.Controls
                     AddSeries("Heave", "AreaHeave", Palette.SeriesHeave);
                     AlignAreas("AreaPitch", "AreaRoll"); AlignAreas("AreaHeave", "AreaRoll");
                 }
+                else if (mode == TrendMode.Env)
+                {
+                    AddArea("AreaTemp"); AddArea("AreaHumidity");
+                    AddSeries("Temp",     "AreaTemp",     Palette.SeriesRoll);
+                    AddSeries("Humidity", "AreaHumidity", Palette.SeriesWSpeed);
+                    AlignAreas("AreaHumidity", "AreaTemp");
+                }
                 else
                 {
                     AddArea("AreaWindSpeed"); AddArea("AreaWindDir");

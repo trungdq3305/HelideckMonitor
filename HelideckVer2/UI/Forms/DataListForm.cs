@@ -15,7 +15,7 @@ namespace HelideckVer2
             "$WIMWV",
             "$CNTB",
             "$HEHDT",
-            "-"
+            "MODBUS-RTU  FC03  Slave1"
         };
         private static readonly string[] _dataDesc = {
             "GPS Position & Speed Over Ground",
