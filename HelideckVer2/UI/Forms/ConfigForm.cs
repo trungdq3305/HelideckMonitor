@@ -22,6 +22,7 @@ namespace HelideckVer2
         private CheckBox chkSimulationMode;
         private Button _btnDay, _btnNight;
         private bool _pendingIsLight;
+        private bool _originalTheme;
 
         // ── Vessel Image tab ─────────────────────────────────────────────────
         private PictureBox _imgPreview;
@@ -143,7 +144,7 @@ namespace HelideckVer2
                 Font      = new Font("Segoe UI", 9, FontStyle.Bold)
             };
             _btnDay.FlatAppearance.BorderSize = 1;
-            _btnDay.Click += (s, e) => { _pendingIsLight = true;  UpdateThemeButtons(); };
+            _btnDay.Click += (s, e) => { _pendingIsLight = true;  SystemConfig.IsLightTheme = true;  UpdateThemeButtons(); };
 
             _btnNight = new Button
             {
@@ -154,7 +155,13 @@ namespace HelideckVer2
                 Font      = new Font("Segoe UI", 9, FontStyle.Bold)
             };
             _btnNight.FlatAppearance.BorderSize = 1;
-            _btnNight.Click += (s, e) => { _pendingIsLight = false; UpdateThemeButtons(); };
+            _btnNight.Click += (s, e) => { _pendingIsLight = false; SystemConfig.IsLightTheme = false; UpdateThemeButtons(); };
+
+            this.FormClosing += (s, e) =>
+            {
+                if (this.DialogResult != DialogResult.OK)
+                    SystemConfig.IsLightTheme = _originalTheme;
+            };
 
             pnlBottom.Controls.Add(chkSimulationMode);
             pnlBottom.Controls.Add(_btnDay);
@@ -644,7 +651,8 @@ namespace HelideckVer2
             numPitch.Value = (decimal)SystemConfig.PMax;
             numHeave.Value = (decimal)SystemConfig.HMax;
             chkSimulationMode.Checked = SystemConfig.IsSimulationMode;
-            _pendingIsLight           = SystemConfig.IsLightTheme;
+            _originalTheme  = SystemConfig.IsLightTheme;
+            _pendingIsLight = SystemConfig.IsLightTheme;
             UpdateThemeButtons();
 
             dgvComConfig.Rows.Clear();
@@ -659,7 +667,6 @@ namespace HelideckVer2
             SystemConfig.PMax = (double)numPitch.Value;
             SystemConfig.HMax = (double)numHeave.Value;
             SystemConfig.IsSimulationMode = chkSimulationMode.Checked;
-            bool themeChanged = SystemConfig.IsLightTheme != _pendingIsLight;
             SystemConfig.IsLightTheme = _pendingIsLight;
 
             foreach (DataGridViewRow row in dgvComConfig.Rows)
@@ -670,7 +677,7 @@ namespace HelideckVer2
                 task.PortName = row.Cells["Port"].Value?.ToString() ?? task.PortName;
             }
 
-            // Save selected vessel image → Images/picture1.png
+            // Save selected vessel image → Images/picture1.png, then notify live
             if (_pendingImagePath != null)
             {
                 try
@@ -680,6 +687,7 @@ namespace HelideckVer2
                     string dest = Path.Combine(folder, "picture1.png");
                     if (File.Exists(dest)) File.Delete(dest);
                     File.Copy(_pendingImagePath, dest);
+                    SystemConfig.RaiseVesselImageChanged();
                 }
                 catch (Exception ex)
                 {
@@ -691,14 +699,6 @@ namespace HelideckVer2
             var saveCfg = HelideckVer2.Models.SystemConfig.Export();
             saveCfg.Tasks = Tasks;
             HelideckVer2.Services.ConfigService.Save(saveCfg);
-
-            if (themeChanged)
-            {
-                this.DialogResult = DialogResult.OK;
-                this.Close();
-                Application.Restart();
-                return;
-            }
 
             MessageBox.Show(
                 "Configuration saved!\n\nPlease restart the application to apply COM port / Baud rate changes.",

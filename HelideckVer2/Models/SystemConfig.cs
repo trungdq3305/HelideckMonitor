@@ -9,7 +9,21 @@ namespace HelideckVer2.Models
     public static class SystemConfig
     {
         public static bool IsSimulationMode { get; set; } = true;
-        public static bool IsLightTheme { get; set; } = false;
+        public static event Action ThemeChanged;
+        public static event Action VesselImageChanged;
+        public static void RaiseVesselImageChanged() => VesselImageChanged?.Invoke();
+
+        private static bool _isLightTheme = false;
+        public static bool IsLightTheme
+        {
+            get => _isLightTheme;
+            set
+            {
+                if (_isLightTheme == value) return;
+                _isLightTheme = value;
+                ThemeChanged?.Invoke();
+            }
+        }
         public static string AdminPassword { get; set; } = "123456";
         public static string ShipName { get; set; } = "FSO 01 - HELIDECK";
 

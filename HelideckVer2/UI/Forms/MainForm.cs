@@ -67,6 +67,8 @@ namespace HelideckVer2
             var cfg = ConfigService.Load();
             SystemConfig.Apply(cfg);
             Palette.IsLight = SystemConfig.IsLightTheme; // phải set trước khi build UI
+            SystemConfig.ThemeChanged += ApplyTheme;
+            SystemConfig.VesselImageChanged += () => LoadImageFromFile(pictureBox1, "picture1.png");
 
             if (cfg.Tasks != null)
             {
@@ -169,6 +171,83 @@ namespace HelideckVer2
             _chartUpdateTimer = new System.Windows.Forms.Timer { Interval = 100 };
             _chartUpdateTimer.Tick += (s, e) => _trendControl.Render();
             _chartUpdateTimer.Start();
+        }
+
+        // ── LIVE THEME SWITCH ─────────────────────────────────────────────────
+
+        // Builds old→new color map then walks every control in the form.
+        // Custom-drawn controls (radar, chart) are invalidated / rebuilt so they
+        // repaint themselves with the new Palette colours.
+        private void ApplyTheme()
+        {
+            if (InvokeRequired) { Invoke(new Action(ApplyTheme)); return; }
+
+            // Snapshot old palette (before switching IsLight)
+            Color[] oldC = SnapshotPalette();
+
+            // Switch theme
+            Palette.IsLight = SystemConfig.IsLightTheme;
+
+            // Snapshot new palette
+            Color[] newC = SnapshotPalette();
+
+            // Build colour-swap map (old → new); skip duplicates (first entry wins)
+            var map = new Dictionary<Color, Color>();
+            for (int i = 0; i < oldC.Length; i++)
+                if (!map.ContainsKey(oldC[i]))
+                    map[oldC[i]] = newC[i];
+
+            this.SuspendLayout();
+            SwapControlColors(this, map);
+
+            // Explicitly repaint dynamic card panels (created after InitializeComponent).
+            // SwapControlColors may miss them because EnableDoubleBuffer/UserPaint panels
+            // don't always honour BackColor changes set from outside their own paint cycle.
+            tableLayoutPanel2.BackColor = Palette.CardBg;
+            foreach (Control card in tableLayoutPanel2.Controls)
+                card.Invalidate(true);
+
+            this.ResumeLayout(false);
+
+            // Rebuild chart areas/series with new palette colours
+            _trendControl?.SetMode(_currentTrendMode, _isSeparateTrend);
+
+            // Force repaint on GDI+ custom controls
+            _radarControl?.Invalidate();
+            this.Refresh();
+        }
+
+        // Returns all Palette colour values in a fixed order (must match between two calls)
+        private static Color[] SnapshotPalette() => new[] {
+            Palette.AppBg,        Palette.PanelBg,      Palette.CardBg,
+            Palette.CardFace,     Palette.SectionHdrBg, Palette.SurfaceHi,
+            Palette.BorderCard,   Palette.BorderPanel,  Palette.GridLine,
+            Palette.TextLabel,    Palette.TextValue,    Palette.TextDim,
+            Palette.TextGps,      Palette.OkBg,         Palette.OkFg,
+            Palette.LostBg,       Palette.LostFg,       Palette.WaitBg,
+            Palette.WaitFg,       Palette.AlarmActiveBg,Palette.AlarmActiveFg,
+            Palette.AlarmAckBg,   Palette.AlarmAckFg,   Palette.AlarmNormalBg,
+            Palette.AlarmNormalFg,Palette.BtnPrimaryBg, Palette.BtnPrimaryFg,
+            Palette.BtnSettingsBg,Palette.BtnSettingsFg,Palette.BtnActiveBg,
+            Palette.BtnActiveFg,  Palette.ChartBg,      Palette.SeriesRoll,
+            Palette.SeriesPitch,  Palette.SeriesHeave,  Palette.SeriesWSpeed,
+            Palette.SeriesWDir,   Palette.RadarBg,      Palette.RadarFace,
+        };
+
+        private static void SwapControlColors(Control root, Dictionary<Color, Color> map)
+        {
+            foreach (Control c in root.Controls)
+            {
+                if (map.TryGetValue(c.BackColor, out Color nb)) c.BackColor = nb;
+                if (map.TryGetValue(c.ForeColor, out Color nf)) c.ForeColor = nf;
+
+                // Buttons also have FlatAppearance border colours
+                if (c is Button btn && map.TryGetValue(btn.FlatAppearance.BorderColor, out Color nbdr))
+                    btn.FlatAppearance.BorderColor = nbdr;
+
+                if (c.Controls.Count > 0)
+                    SwapControlColors(c, map);
+            }
         }
 
         // ── LAYOUT SETUP ──────────────────────────────────────────────────────
@@ -344,8 +423,6 @@ namespace HelideckVer2
             // Đơn vị hiển thị riêng ở label nhỏ bên dưới – không nhúng vào text số
             string[] unitTexts = { "", "kn", "°", "°", "°", "cm", "s", "m/s", "°", "°C", "%" };
 
-            Color cardBg  = Palette.CardFace;
-            Color sepClr  = Palette.BorderCard;
             Color titleFg = Palette.TextLabel;
 
             for (int i = 0; i < 11; i++)
@@ -357,13 +434,13 @@ namespace HelideckVer2
                 titles[i].Dock      = DockStyle.Top;
                 titles[i].TextAlign = ContentAlignment.MiddleCenter;
                 titles[i].ForeColor = titleFg;
-                titles[i].BackColor = cardBg;
+                titles[i].BackColor = Color.Transparent;
 
                 values[i].Text      = "---";
                 values[i].AutoSize  = false;
                 values[i].Dock      = DockStyle.Fill;
                 values[i].TextAlign = ContentAlignment.MiddleCenter;
-                values[i].BackColor = cardBg;
+                values[i].BackColor = Color.Transparent;
                 values[i].ForeColor = Palette.OkFg;
 
                 if (i == 0)  values[i].ForeColor = Palette.TextGps;       // POSITION
@@ -384,13 +461,13 @@ namespace HelideckVer2
                     Dock      = DockStyle.Bottom,
                     Height    = hasUnit ? 18 : 0,
                     TextAlign = ContentAlignment.MiddleCenter,
-                    BackColor = cardBg,
+                    BackColor = Color.Transparent,
                     ForeColor = Palette.TextDim,
                     Font      = new Font("Segoe UI", 9f)
                 };
                 _unitLabels[i] = unitLbl;
 
-                var card = new Panel { Dock = DockStyle.Fill, Margin = new Padding(4), BackColor = cardBg };
+                var card = new CardPanel { Dock = DockStyle.Fill, Margin = new Padding(4) };
                 EnableDoubleBuffer(card);
                 int idx = i;
 
@@ -424,7 +501,7 @@ namespace HelideckVer2
                     g.SmoothingMode = SmoothingMode.AntiAlias;
                     var rect = new Rectangle(0, 0, card.Width - 1, card.Height - 1);
                     using var path = GetRoundedRect(rect, 10);
-                    using var pen  = new Pen(sepClr, 1);
+                    using var pen  = new Pen(Palette.BorderCard, 1);
                     g.DrawPath(pen, path);
                     int lineY = titles[idx].Height;
                     using var sp = new Pen(Palette.BorderPanel, 1);
@@ -864,14 +941,13 @@ namespace HelideckVer2
         {
             try
             {
-                string folder = Path.Combine(Application.StartupPath, "Images");
-                Directory.CreateDirectory(folder);
-                string path = Path.Combine(folder, fileName);
-                if (File.Exists(path))
-                {
-                    using var stream = new FileStream(path, FileMode.Open, FileAccess.Read);
-                    picBox.Image = Image.FromStream(stream);
-                }
+                string path = Path.Combine(Application.StartupPath, "Images", fileName);
+                if (!File.Exists(path)) return;
+                Image old = picBox.Image;
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read);
+                using var tmp = Image.FromStream(stream);
+                picBox.Image = (Image)tmp.Clone(); // clone tách khỏi stream trước khi stream đóng
+                old?.Dispose();
             }
             catch { }
         }
@@ -933,6 +1009,17 @@ namespace HelideckVer2
             int x = widths[0];
             using var pen = new Pen(Palette.BorderCard, 2);
             e.Graphics.DrawLine(pen, x, 0, x, tableLayoutPanel1.Height);
+        }
+
+        // Panel that always fills its background from the current Palette,
+        // so theme switches take effect without any BackColor bookkeeping.
+        private sealed class CardPanel : Panel
+        {
+            protected override void OnPaintBackground(PaintEventArgs e)
+            {
+                using var brush = new SolidBrush(Palette.CardFace);
+                e.Graphics.FillRectangle(brush, ClientRectangle);
+            }
         }
     }
 }

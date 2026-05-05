@@ -69,6 +69,13 @@ namespace HelideckVer2.UI.Controls
             _chart.Series.Clear();
             _chart.ChartAreas.Clear();
 
+            _chart.BackColor = Palette.ChartBg;
+            if (_chart.Legends.Count > 0)
+            {
+                _chart.Legends[0].BackColor = Palette.ChartBg;
+                _chart.Legends[0].ForeColor = Palette.TextLabel;
+            }
+
             if (_isSeparateTrend)
             {
                 if (mode == TrendMode.Motion)
