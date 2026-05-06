@@ -23,8 +23,9 @@ namespace HelideckVer2.UI.Controls
         private readonly List<TrendPoint> _windBuffer   = new List<TrendPoint>();
         private readonly List<TrendPoint> _envBuffer    = new List<TrendPoint>();
 
-        private string _hoverText = "";
-        private Point _hoverPoint = Point.Empty;
+        private string _hoverText  = "";
+        private Point  _hoverPoint = Point.Empty;
+        private double _hoverXValue = double.NaN; // giá trị X tại vị trí chuột — dùng để vẽ cursor trong PostPaint
 
         public TrendChartControl()
         {
@@ -127,7 +128,6 @@ namespace HelideckVer2.UI.Controls
                     AddSeries("Roll",  "MainArea", Palette.SeriesRoll);
                     AddSeries("Pitch", "MainArea", Palette.SeriesPitch);
 
-                    // Heave dùng trục Y phụ (bên phải) vì đơn vị cm khác Roll/Pitch (°)
                     var heaveSeries = AddSeries("Heave", "MainArea", Palette.SeriesHeave);
                     heaveSeries.YAxisType = AxisType.Secondary;
 
@@ -160,26 +160,24 @@ namespace HelideckVer2.UI.Controls
                 BorderWidth      = 1
             };
 
-            area.AxisX.LabelStyle.Format   = "HH:mm:ss";
-            area.AxisX.LabelStyle.ForeColor = Palette.TextLabel;
-            area.AxisX.LineColor            = Palette.BorderPanel;
+            area.AxisX.LabelStyle.Format      = "HH:mm:ss";
+            area.AxisX.LabelStyle.ForeColor   = Palette.TextLabel;
+            area.AxisX.LineColor              = Palette.BorderPanel;
             area.AxisX.MajorTickMark.LineColor = Palette.BorderCard;
-            area.AxisX.MajorGrid.LineColor  = Palette.GridLine;
+            area.AxisX.MajorGrid.LineColor    = Palette.GridLine;
             area.AxisX.MajorGrid.LineDashStyle = ChartDashStyle.Dash;
 
-            area.AxisY.LabelStyle.ForeColor = Palette.TextLabel;
-            area.AxisY.LineColor            = Palette.BorderPanel;
+            area.AxisY.LabelStyle.ForeColor   = Palette.TextLabel;
+            area.AxisY.LineColor              = Palette.BorderPanel;
             area.AxisY.MajorTickMark.LineColor = Palette.BorderCard;
-            area.AxisY.MajorGrid.LineColor  = Palette.GridLine;
+            area.AxisY.MajorGrid.LineColor    = Palette.GridLine;
             area.AxisY.MajorGrid.LineDashStyle = ChartDashStyle.Dash;
 
-            area.CursorX.IsUserEnabled = true;
-            area.CursorX.Interval      = 0;
-            area.CursorX.LineColor     = Palette.TextLabel;
-            area.CursorY.IsUserEnabled = true;
-            area.CursorY.Interval      = 0;
+            // Tắt built-in cursor — tự vẽ trong PostPaint để tránh double-repaint gây giật
+            area.CursorX.IsUserEnabled = false;
+            area.CursorY.IsUserEnabled = false;
 
-            area.AxisX.ScrollBar.Enabled = true;
+            area.AxisX.ScrollBar.Enabled      = true;
             area.AxisX.ScrollBar.BackColor    = Palette.PanelBg;
             area.AxisX.ScrollBar.ButtonColor  = Palette.SurfaceHi;
             area.AxisX.ScrollBar.LineColor    = Palette.BorderCard;
@@ -247,9 +245,9 @@ namespace HelideckVer2.UI.Controls
         public void Render()
         {
             if (_chart.IsDisposed) return;
-            double nowX    = DateTime.Now.ToOADate();
+            double nowX     = DateTime.Now.ToOADate();
             double viewSize = _viewMinutes / 1440.0;
-            double minX    = DateTime.Now.AddMinutes(-BufferMinutes).ToOADate();
+            double minX     = DateTime.Now.AddMinutes(-BufferMinutes).ToOADate();
 
             _chart.SuspendLayout();
             if (_currentMode == TrendMode.Motion)
@@ -271,8 +269,8 @@ namespace HelideckVer2.UI.Controls
 
             foreach (var area in _chart.ChartAreas)
             {
-                area.AxisX.Minimum = minX;
-                area.AxisX.Maximum = nowX;
+                area.AxisX.Minimum        = minX;
+                area.AxisX.Maximum        = nowX;
                 area.AxisX.ScaleView.Size = viewSize;
 
                 if (_isLiveMode)
@@ -310,6 +308,7 @@ namespace HelideckVer2.UI.Controls
             return new TrendPoint { X = 0 };
         }
 
+        // MouseMove chỉ lưu trạng thái, không gọi Invalidate — Render() 100ms sẽ kích repaint
         private void Chart_MouseMove(object sender, MouseEventArgs e)
         {
             if (_chart.ChartAreas.Count == 0) return;
@@ -317,76 +316,94 @@ namespace HelideckVer2.UI.Controls
             {
                 ChartArea area = _chart.ChartAreas[0];
                 double xVal = area.AxisX.PixelPositionToValue(e.X);
-                area.CursorX.Position = xVal;
+                _hoverXValue = xVal;
 
-                bool hasData = false;
                 string tip = "";
+                bool hasData = false;
 
                 if (_currentMode == TrendMode.Motion)
                 {
-                    TrendPoint closest = GetClosestPoint(_motionBuffer, xVal);
-                    if (closest.X != 0)
+                    TrendPoint pt = GetClosestPoint(_motionBuffer, xVal);
+                    if (pt.X != 0)
                     {
-                        tip = $"Time: {DateTime.FromOADate(closest.X):HH:mm:ss}\nRoll: {closest.V1:0.00}°\nPitch: {closest.V2:0.00}°\nHeave: {closest.V3:0.0} cm";
+                        tip = $"Time: {DateTime.FromOADate(pt.X):HH:mm:ss}\nRoll: {pt.V1:0.00}°\nPitch: {pt.V2:0.00}°\nHeave: {pt.V3:0.0} cm";
                         hasData = true;
                     }
                 }
                 else if (_currentMode == TrendMode.Env)
                 {
-                    TrendPoint closest = GetClosestPoint(_envBuffer, xVal);
-                    if (closest.X != 0)
+                    TrendPoint pt = GetClosestPoint(_envBuffer, xVal);
+                    if (pt.X != 0)
                     {
-                        tip = $"Time: {DateTime.FromOADate(closest.X):HH:mm:ss}\nTemp: {closest.V1:0.0} °C\nHumidity: {closest.V2:0.0} %";
+                        tip = $"Time: {DateTime.FromOADate(pt.X):HH:mm:ss}\nTemp: {pt.V1:0.0} °C\nHumidity: {pt.V2:0.0} %";
                         hasData = true;
                     }
                 }
                 else
                 {
-                    TrendPoint closest = GetClosestPoint(_windBuffer, xVal);
-                    if (closest.X != 0)
+                    TrendPoint pt = GetClosestPoint(_windBuffer, xVal);
+                    if (pt.X != 0)
                     {
-                        tip = $"Time: {DateTime.FromOADate(closest.X):HH:mm:ss}\nWind: {closest.V1:0.0} m/s\nDir: {closest.V2:0}°";
+                        tip = $"Time: {DateTime.FromOADate(pt.X):HH:mm:ss}\nWind: {pt.V1:0.0} m/s\nDir: {pt.V2:0}°";
                         hasData = true;
                     }
                 }
 
-                if (hasData) { _hoverText = tip; _hoverPoint = e.Location; }
-                else _hoverText = "";
+                _hoverText  = hasData ? tip : "";
+                _hoverPoint = e.Location;
             }
             catch { _hoverText = ""; }
         }
 
         private void Chart_MouseLeave(object sender, EventArgs e)
         {
-            _hoverText = "";
-            foreach (var area in _chart.ChartAreas) area.CursorX.Position = double.NaN;
-            _chart.Invalidate();
+            _hoverText   = "";
+            _hoverXValue = double.NaN;
         }
 
+        // PostPaint vẽ cả cursor line lẫn tooltip — một đường render duy nhất, không chồng lấn
         private void Chart_PostPaint(object sender, ChartPaintEventArgs e)
         {
+            Graphics g = e.ChartGraphics.Graphics;
+
+            // Vẽ đường cursor dọc trên tất cả các area
+            if (!double.IsNaN(_hoverXValue))
+            {
+                using var linePen = new Pen(Color.FromArgb(160, Palette.TextLabel), 1)
+                {
+                    DashStyle = System.Drawing.Drawing2D.DashStyle.Dash
+                };
+                foreach (var area in _chart.ChartAreas)
+                {
+                    try
+                    {
+                        float px = (float)area.AxisX.ValueToPixelPosition(_hoverXValue);
+                        if (px >= 0 && px <= _chart.Width)
+                            g.DrawLine(linePen, px, 0, px, _chart.Height);
+                    }
+                    catch { }
+                }
+            }
+
+            // Vẽ tooltip
             if (!string.IsNullOrEmpty(_hoverText))
             {
-                Graphics g = e.ChartGraphics.Graphics;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using var f      = new Font("Segoe UI", 10, FontStyle.Bold);
+                using var bgBrush = new SolidBrush(Color.FromArgb(220, Palette.CardBg.R, Palette.CardBg.G, Palette.CardBg.B));
+                using var border  = new Pen(Palette.BorderCard, 1);
+                using var fgBrush = new SolidBrush(Palette.TextValue);
 
-                using (Font f = new Font("Segoe UI", 10, FontStyle.Bold))
-                using (SolidBrush bg = new SolidBrush(Color.FromArgb(220, Palette.CardBg.R, Palette.CardBg.G, Palette.CardBg.B)))
-                using (Pen border = new Pen(Palette.BorderCard, 1))
-                using (SolidBrush fg = new SolidBrush(Palette.TextValue))
-                {
-                    SizeF size = g.MeasureString(_hoverText, f);
-                    float x = _hoverPoint.X + 15;
-                    float y = _hoverPoint.Y + 15;
+                SizeF size = g.MeasureString(_hoverText, f);
+                float x = _hoverPoint.X + 15;
+                float y = _hoverPoint.Y + 15;
+                if (x + size.Width  + 10 > _chart.Width)  x = _chart.Width  - size.Width  - 15;
+                if (y + size.Height + 10 > _chart.Height) y = _chart.Height - size.Height - 15;
 
-                    if (x + size.Width + 10 > _chart.Width)  x = _chart.Width  - size.Width  - 15;
-                    if (y + size.Height + 10 > _chart.Height) y = _chart.Height - size.Height - 15;
-
-                    RectangleF rect = new RectangleF(x, y, size.Width + 10, size.Height + 10);
-                    g.FillRectangle(bg, rect);
-                    g.DrawRectangle(border, rect.X, rect.Y, rect.Width, rect.Height);
-                    g.DrawString(_hoverText, f, fg, rect.X + 5, rect.Y + 5);
-                }
+                var rect = new RectangleF(x, y, size.Width + 10, size.Height + 10);
+                g.FillRectangle(bgBrush, rect);
+                g.DrawRectangle(border, rect.X, rect.Y, rect.Width, rect.Height);
+                g.DrawString(_hoverText, f, fgBrush, rect.X + 5, rect.Y + 5);
             }
         }
 

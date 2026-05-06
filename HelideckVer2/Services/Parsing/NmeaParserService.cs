@@ -166,6 +166,50 @@ namespace HelideckVer2.Services.Parsing
                     return;
                 }
 
+                // 4b. $PASHR – Xsens Sirius AHRS: roll, pitch, heave SDI trực tiếp
+                // Không timestamp: $PASHR,HHH.HH,T,Roll,Pitch,Heave,RollRate,PitchRate,HeadRate,Q1,Q2
+                // Có timestamp:    $PASHR,HHMMSS.SS,HHH.HH,T,Roll,Pitch,Heave,...
+                if (p[0].Equals("$PASHR", StringComparison.OrdinalIgnoreCase) && p.Length >= 6)
+                {
+                    bool withTime = p.Length >= 4 && p[3].Equals("T", StringComparison.OrdinalIgnoreCase);
+                    bool noTime   = p.Length >= 3 && p[2].Equals("T", StringComparison.OrdinalIgnoreCase);
+                    if (withTime || noTime)
+                    {
+                        int hdgIdx   = withTime ? 2 : 1;
+                        int rollIdx  = hdgIdx + 2;
+                        int pitchIdx = hdgIdx + 3;
+                        int heaveIdx = hdgIdx + 4;
+
+                        if (rollIdx < p.Length && pitchIdx < p.Length &&
+                            double.TryParse(p[rollIdx],  style, ci, out double roll) &&
+                            double.TryParse(p[pitchIdx], style, ci, out double pitch))
+                        {
+                            double heave = (heaveIdx < p.Length &&
+                                            !string.IsNullOrWhiteSpace(p[heaveIdx]) &&
+                                            double.TryParse(p[heaveIdx], style, ci, out double hm))
+                                           ? hm * 100.0                                       // SDI heave: m → cm
+                                           : HeaveArm * Math.Sin(pitch * Math.PI / 180.0);    // fallback nếu không có SDI
+                            _lastMotion = (roll, pitch, heave);
+                            OnMotionParsed?.Invoke(roll, pitch, heave);
+                        }
+                    }
+                    return;
+                }
+
+                // 4c. $PHTRO – Xsens proprietary pitch/roll
+                // $PHTRO,PPP.PP,B,RRR.RR,S*CC  (B=P/M bow indicator, S=S/B roll indicator)
+                if (p[0].Equals("$PHTRO", StringComparison.OrdinalIgnoreCase) && p.Length >= 4)
+                {
+                    if (double.TryParse(p[1], style, ci, out double pitch) &&
+                        double.TryParse(p[3], style, ci, out double roll))
+                    {
+                        double heave = HeaveArm * Math.Sin(pitch * Math.PI / 180.0);
+                        _lastMotion = (roll, pitch, heave);
+                        OnMotionParsed?.Invoke(roll, pitch, heave);
+                    }
+                    return;
+                }
+
                 // 5. POSITION ($xxGGA)
                 if (p[0].EndsWith("GGA", StringComparison.OrdinalIgnoreCase) && p.Length >= 6)
                 {
