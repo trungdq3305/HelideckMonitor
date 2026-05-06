@@ -459,11 +459,11 @@ namespace HelideckVer2
                     Text      = unitTexts[i],
                     AutoSize  = false,
                     Dock      = DockStyle.Bottom,
-                    Height    = hasUnit ? 18 : 0,
+                    Height    = hasUnit ? 26 : 0,
                     TextAlign = ContentAlignment.MiddleCenter,
                     BackColor = Color.Transparent,
-                    ForeColor = Palette.TextDim,
-                    Font      = new Font("Segoe UI", 9f)
+                    ForeColor = Palette.TextLabel,
+                    Font      = new Font("Segoe UI", 12f, FontStyle.Bold)
                 };
                 _unitLabels[i] = unitLbl;
 
@@ -479,9 +479,9 @@ namespace HelideckVer2
 
                     if (_unitLabels[idx] != null && !string.IsNullOrEmpty(_unitLabels[idx].Text))
                     {
-                        int unitH = Math.Max(14, (int)(card.Height * 0.18f));
+                        int unitH = Math.Max(22, (int)(card.Height * 0.22f));
                         _unitLabels[idx].Height = unitH;
-                        float uf = Math.Max(7f, Math.Min(card.Height * 0.09f, 11f));
+                        float uf = Math.Max(10f, Math.Min(card.Height * 0.13f, 16f));
                         SafeSetFont(_unitLabels[idx], uf);
                     }
 

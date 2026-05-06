@@ -86,6 +86,9 @@ namespace HelideckVer2.UI.Controls
                     AddSeries("Pitch", "AreaPitch", Palette.SeriesPitch);
                     AddSeries("Heave", "AreaHeave", Palette.SeriesHeave);
                     AlignAreas("AreaPitch", "AreaRoll"); AlignAreas("AreaHeave", "AreaRoll");
+                    SetAreaYTitle("AreaRoll",  "Roll (°)",    Palette.SeriesRoll);
+                    SetAreaYTitle("AreaPitch", "Pitch (°)",   Palette.SeriesPitch);
+                    SetAreaYTitle("AreaHeave", "Heave (cm)",  Palette.SeriesHeave);
                 }
                 else if (mode == TrendMode.Env)
                 {
@@ -93,6 +96,8 @@ namespace HelideckVer2.UI.Controls
                     AddSeries("Temp",     "AreaTemp",     Palette.SeriesRoll);
                     AddSeries("Humidity", "AreaHumidity", Palette.SeriesWSpeed);
                     AlignAreas("AreaHumidity", "AreaTemp");
+                    SetAreaYTitle("AreaTemp",     "Temp (°C)",     Palette.SeriesRoll);
+                    SetAreaYTitle("AreaHumidity", "Humidity (%)",  Palette.SeriesWSpeed, min: 0, max: 100);
                 }
                 else
                 {
@@ -100,6 +105,8 @@ namespace HelideckVer2.UI.Controls
                     AddSeries("WindSpeed", "AreaWindSpeed", Palette.SeriesWSpeed);
                     AddSeries("WindDir",   "AreaWindDir",   Palette.SeriesWDir);
                     AlignAreas("AreaWindDir", "AreaWindSpeed");
+                    SetAreaYTitle("AreaWindSpeed", "Wind Speed (m/s)", Palette.SeriesWSpeed);
+                    SetAreaYTitle("AreaWindDir",   "Direction (°)",    Palette.SeriesWDir, min: 0, max: 360, interval: 90);
                 }
             }
             else if (mode == TrendMode.Env)
@@ -110,12 +117,17 @@ namespace HelideckVer2.UI.Controls
                 humSeries.YAxisType = AxisType.Secondary;
 
                 var area = _chart.ChartAreas["MainArea"];
-                area.AxisY.Title                    = "°C";
+                area.AxisY.Title                    = "Temperature (°C)";
                 area.AxisY.TitleForeColor           = Palette.SeriesRoll;
+                area.AxisY.TitleFont                = new Font("Segoe UI", 11f, FontStyle.Bold);
                 area.AxisY2.Enabled                 = AxisEnabled.True;
-                area.AxisY2.Title                   = "%";
+                area.AxisY2.Title                   = "Humidity (%)";
                 area.AxisY2.TitleForeColor          = Palette.SeriesWSpeed;
+                area.AxisY2.TitleFont               = new Font("Segoe UI", 11f, FontStyle.Bold);
                 area.AxisY2.LabelStyle.ForeColor    = Palette.SeriesWSpeed;
+                area.AxisY2.LabelStyle.Font         = new Font("Segoe UI", 9f, FontStyle.Bold);
+                area.AxisY2.Minimum                 = 0;
+                area.AxisY2.Maximum                 = 100;
                 area.AxisY2.LineColor               = Palette.SeriesWSpeed;
                 area.AxisY2.MajorTickMark.LineColor = Palette.SeriesWSpeed;
                 area.AxisY2.MajorGrid.LineColor     = Color.Transparent;
@@ -132,12 +144,15 @@ namespace HelideckVer2.UI.Controls
                     heaveSeries.YAxisType = AxisType.Secondary;
 
                     var area = _chart.ChartAreas["MainArea"];
-                    area.AxisY.Title          = "°";
+                    area.AxisY.Title          = "Roll / Pitch (°)";
                     area.AxisY.TitleForeColor = Palette.TextLabel;
-                    area.AxisY2.Enabled       = AxisEnabled.True;
-                    area.AxisY2.Title         = "cm";
+                    area.AxisY.TitleFont      = new Font("Segoe UI", 11f, FontStyle.Bold);
+                    area.AxisY2.Enabled                 = AxisEnabled.True;
+                    area.AxisY2.Title                   = "Heave (cm)";
                     area.AxisY2.TitleForeColor          = Palette.SeriesHeave;
+                    area.AxisY2.TitleFont               = new Font("Segoe UI", 11f, FontStyle.Bold);
                     area.AxisY2.LabelStyle.ForeColor    = Palette.SeriesHeave;
+                    area.AxisY2.LabelStyle.Font         = new Font("Segoe UI", 9f, FontStyle.Bold);
                     area.AxisY2.LineColor               = Palette.SeriesHeave;
                     area.AxisY2.MajorTickMark.LineColor = Palette.SeriesHeave;
                     area.AxisY2.MajorGrid.LineColor     = Color.Transparent;
@@ -145,7 +160,25 @@ namespace HelideckVer2.UI.Controls
                 else
                 {
                     AddSeries("WindSpeed", "MainArea", Palette.SeriesWSpeed);
-                    AddSeries("WindDir",   "MainArea", Palette.SeriesWDir);
+                    var dirSeries = AddSeries("WindDir", "MainArea", Palette.SeriesWDir);
+                    dirSeries.YAxisType = AxisType.Secondary;
+
+                    var area = _chart.ChartAreas["MainArea"];
+                    area.AxisY.Title          = "Wind Speed (m/s)";
+                    area.AxisY.TitleForeColor = Palette.SeriesWSpeed;
+                    area.AxisY.TitleFont      = new Font("Segoe UI", 11f, FontStyle.Bold);
+                    area.AxisY2.Enabled                 = AxisEnabled.True;
+                    area.AxisY2.Title                   = "Direction (°)";
+                    area.AxisY2.TitleForeColor          = Palette.SeriesWDir;
+                    area.AxisY2.TitleFont               = new Font("Segoe UI", 11f, FontStyle.Bold);
+                    area.AxisY2.LabelStyle.ForeColor    = Palette.SeriesWDir;
+                    area.AxisY2.LabelStyle.Font         = new Font("Segoe UI", 9f, FontStyle.Bold);
+                    area.AxisY2.Minimum                 = 0;
+                    area.AxisY2.Maximum                 = 360;
+                    area.AxisY2.Interval                = 90;
+                    area.AxisY2.LineColor               = Palette.SeriesWDir;
+                    area.AxisY2.MajorTickMark.LineColor = Palette.SeriesWDir;
+                    area.AxisY2.MajorGrid.LineColor     = Color.Transparent;
                 }
             }
         }
@@ -162,12 +195,15 @@ namespace HelideckVer2.UI.Controls
 
             area.AxisX.LabelStyle.Format      = "HH:mm:ss";
             area.AxisX.LabelStyle.ForeColor   = Palette.TextLabel;
+            area.AxisX.LabelStyle.Font        = new Font("Segoe UI", 9f, FontStyle.Bold);
             area.AxisX.LineColor              = Palette.BorderPanel;
             area.AxisX.MajorTickMark.LineColor = Palette.BorderCard;
             area.AxisX.MajorGrid.LineColor    = Palette.GridLine;
             area.AxisX.MajorGrid.LineDashStyle = ChartDashStyle.Dash;
 
             area.AxisY.LabelStyle.ForeColor   = Palette.TextLabel;
+            area.AxisY.LabelStyle.Font        = new Font("Segoe UI", 9f, FontStyle.Bold);
+            area.AxisY.TitleFont              = new Font("Segoe UI", 12f, FontStyle.Bold);
             area.AxisY.LineColor              = Palette.BorderPanel;
             area.AxisY.MajorTickMark.LineColor = Palette.BorderCard;
             area.AxisY.MajorGrid.LineColor    = Palette.GridLine;
@@ -405,6 +441,22 @@ namespace HelideckVer2.UI.Controls
                 g.DrawRectangle(border, rect.X, rect.Y, rect.Width, rect.Height);
                 g.DrawString(_hoverText, f, fgBrush, rect.X + 5, rect.Y + 5);
             }
+        }
+
+        private void SetAreaYTitle(string areaName, string title, Color color,
+                                    double min = double.NaN, double max = double.NaN, double interval = double.NaN)
+        {
+            var a = _chart.ChartAreas[areaName];
+            a.AxisY.Title          = title;
+            a.AxisY.TitleForeColor = color;
+            a.AxisY.TitleFont      = new Font("Segoe UI", 11f, FontStyle.Bold);
+            a.AxisY.LabelStyle.ForeColor = color;
+            a.AxisY.LabelStyle.Font      = new Font("Segoe UI", 9f, FontStyle.Bold);
+            a.AxisY.LineColor            = color;
+            a.AxisY.MajorTickMark.LineColor = color;
+            if (!double.IsNaN(min))      a.AxisY.Minimum  = min;
+            if (!double.IsNaN(max))      a.AxisY.Maximum  = max;
+            if (!double.IsNaN(interval)) a.AxisY.Interval = interval;
         }
 
         private void Chart_AxisViewChanged(object sender, ViewEventArgs e)
