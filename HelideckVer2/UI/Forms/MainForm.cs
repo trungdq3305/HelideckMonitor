@@ -31,6 +31,7 @@ namespace HelideckVer2
 
         private AlarmEngine _alarmEngine;
         private bool _isSeparateTrend = false;
+        private Button[] _trendModeButtons;
 
         private Tag _windTag, _rollTag, _pitchTag, _heaveTag;
         private Label lblAlarmStatus;
@@ -136,10 +137,11 @@ namespace HelideckVer2
             }
 
             // MeteoService — Modbus RTU / RK330-01 (COM5)
+            // Port is managed by ComEngine; MeteoService only handles Modbus polling
             var meteoTask = ConfigForm.Tasks.Find(t => t.TaskName == "METEO");
             if (meteoTask != null)
             {
-                _meteoService = new MeteoService(meteoTask.PortName, meteoTask.BaudRate);
+                _meteoService = new MeteoService(meteoTask.PortName, meteoTask.BaudRate, _comEngine);
                 _meteoService.Start();
             }
             this.FormClosed += (s, e) => _meteoService?.Stop();
@@ -211,6 +213,8 @@ namespace HelideckVer2
 
             // Rebuild chart areas/series with new palette colours
             _trendControl?.SetMode(_currentTrendMode, _isSeparateTrend);
+
+            RefreshTrendButtonColors();
 
             // Force repaint on GDI+ custom controls
             _radarControl?.Invalidate();
@@ -802,6 +806,7 @@ namespace HelideckVer2
             {
                 _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Motion;
                 _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
+                RefreshTrendButtonColors();
             };
 
             Button btnTrend2 = CreateMenuButton("TREND WIND", Palette.BtnPrimaryBg, Palette.BtnPrimaryFg);
@@ -809,6 +814,7 @@ namespace HelideckVer2
             {
                 _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Wind;
                 _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
+                RefreshTrendButtonColors();
             };
 
             Button btnZoom = CreateMenuButton("VIEW: 2 Min", Palette.BtnActiveBg, Palette.BtnActiveFg);
@@ -834,9 +840,32 @@ namespace HelideckVer2
             {
                 _currentTrendMode = HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Env;
                 _trendControl.SetMode(_currentTrendMode, _isSeparateTrend);
+                RefreshTrendButtonColors();
             };
 
+            _trendModeButtons = new[] { btnTrend1, btnTrend2, btnTrend3 };
+            RefreshTrendButtonColors();
+
             panelTrendButtons.Controls.AddRange(new Control[] { btnTrend1, btnTrend2, btnTrend3, btnToggleSplit, btnZoom });
+        }
+
+        private void RefreshTrendButtonColors()
+        {
+            if (_trendModeButtons == null) return;
+            var modes = new[]
+            {
+                HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Motion,
+                HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Wind,
+                HelideckVer2.UI.Controls.TrendChartControl.TrendMode.Env
+            };
+            for (int i = 0; i < _trendModeButtons.Length; i++)
+            {
+                bool active = modes[i] == _currentTrendMode;
+                _trendModeButtons[i].BackColor = active ? Palette.BtnActiveBg     : Palette.BtnPrimaryBg;
+                _trendModeButtons[i].ForeColor = active ? Palette.BtnActiveFg     : Palette.BtnPrimaryFg;
+                _trendModeButtons[i].FlatAppearance.BorderColor = active ? Palette.BtnActiveBorder : Palette.BorderCard;
+                _trendModeButtons[i].FlatAppearance.BorderSize  = active ? 2 : 1;
+            }
         }
 
         // ── UTILITY ───────────────────────────────────────────────────────────

@@ -75,7 +75,8 @@ namespace HelideckVer2.UI.Theme
         public static Color BtnPrimaryFg  => IsLight ? Color.FromArgb(0x0C, 0x34, 0x64) : Color.FromArgb(0x80, 0xB6, 0xE2);
         public static Color BtnSettingsBg => IsLight ? Color.FromArgb(0xFF, 0xEC, 0xBC) : Color.FromArgb(0x28, 0x16, 0x00);
         public static Color BtnSettingsFg => IsLight ? Color.FromArgb(0x76, 0x42, 0x00) : Color.FromArgb(0xFF, 0xB8, 0x00);
-        public static Color BtnActiveBg   => IsLight ? Color.FromArgb(0x88, 0xB4, 0xDC) : Color.FromArgb(0x1C, 0x38, 0x64);
-        public static Color BtnActiveFg   => IsLight ? Color.FromArgb(0x04, 0x18, 0x38) : Color.FromArgb(0xC0, 0xE2, 0xFF);
+        public static Color BtnActiveBg   => IsLight ? Color.FromArgb(0x15, 0x65, 0xC0) : Color.FromArgb(0x1A, 0x6B, 0xB5);
+        public static Color BtnActiveFg   => IsLight ? Color.FromArgb(0xFF, 0xFF, 0xFF) : Color.FromArgb(0xFF, 0xFF, 0xFF);
+        public static Color BtnActiveBorder => IsLight ? Color.FromArgb(0x64, 0xB5, 0xF6) : Color.FromArgb(0x64, 0xB5, 0xF6);
     }
 }

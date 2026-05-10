@@ -64,9 +64,11 @@ namespace HelideckVer2.Services
 
                     bool isMissing = !_managedPorts.ContainsKey(task.PortName);
                     bool isClosed  = !isMissing && !_managedPorts[task.PortName].IsOpen;
+                    bool isModbus  = task.TaskName == "METEO";
                     bool isTimeout = false;
 
-                    if (!isMissing && _managedPorts[task.PortName].IsOpen &&
+                    // Modbus ports don't stream data — skip inactivity timeout
+                    if (!isModbus && !isMissing && _managedPorts[task.PortName].IsOpen &&
                         _lastDataTime.TryGetValue(task.PortName, out DateTime last))
                     {
                         isTimeout = (DateTime.Now - last).TotalSeconds > 10;
@@ -97,8 +99,24 @@ namespace HelideckVer2.Services
             }
         }
 
+        /// <summary>
+        /// Returns the managed SerialPort for a given port name if it is currently open; otherwise null.
+        /// Used by Modbus-polling services (e.g. MeteoService) that share ComEngine port lifecycle.
+        /// </summary>
+        public SerialPort GetManagedPort(string portName)
+        {
+            lock (_portLock)
+            {
+                if (_managedPorts.TryGetValue(portName, out var sp) && sp.IsOpen)
+                    return sp;
+                return null;
+            }
+        }
+
         private void TryOpenPort(DeviceTask task)
         {
+            bool isModbus = task.TaskName == "METEO";
+
             try
             {
                 if (!_managedPorts.ContainsKey(task.PortName))
@@ -115,7 +133,16 @@ namespace HelideckVer2.Services
                         RtsEnable              = true,
                         ReceivedBytesThreshold = 1
                     };
-                    sp.DataReceived += OnSerialDataReceived;
+                    if (isModbus)
+                    {
+                        // Modbus RTU: synchronous request-response — no DataReceived event needed
+                        sp.ReadTimeout  = 600;
+                        sp.WriteTimeout = 300;
+                    }
+                    else
+                    {
+                        sp.DataReceived += OnSerialDataReceived;
+                    }
                     _managedPorts[task.PortName] = sp;
                 }
 

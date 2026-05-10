@@ -361,3 +361,7 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Internal AI/dev documentation — not for public repo
+PROJECT_BLUEPRINT.md
+HelideckVer2/CLAUDE.md

@@ -9,16 +9,15 @@ namespace HelideckVer2.Services
     /// Polls RK330-01 (Temp / Humidity / Pressure) via Modbus RTU over RS-485.
     /// Frame: FC 03, Slave 1, Start 0x0000, Count 3.
     /// Register mapping: [0]=Temp×100 (°C), [1]=Humidity×100 (%), [2]=Pressure×10 (mbar).
+    /// Port lifecycle (open/close/retry) is delegated to ComEngine — MeteoService only polls.
     /// No NuGet required — CRC-16/IBM implemented inline.
     /// </summary>
     public sealed class MeteoService : IDisposable
     {
-        private readonly string _portName;
-        private readonly int    _baudRate;
+        private readonly string     _portName;
+        private readonly ComEngine  _comEngine;
 
-        private SerialPort            _port;
-        private System.Timers.Timer   _timer;
-        private bool                  _connected;
+        private System.Timers.Timer _timer;
 
         // Simulation drift state
         private readonly Random _rng = new Random();
@@ -26,19 +25,20 @@ namespace HelideckVer2.Services
         private double _simHumidity = 60.0;
         private double _simPressure = 1013.0;
 
-        public MeteoService(string portName, int baudRate)
+        /// <param name="comEngine">
+        /// Pass the running ComEngine so MeteoService can borrow its managed SerialPort.
+        /// Pass null only in unit-test scenarios — real hardware requires a valid ComEngine.
+        /// </param>
+        public MeteoService(string portName, int baudRate, ComEngine comEngine)
         {
-            _portName = portName;
-            _baudRate = baudRate;
+            _portName  = portName;
+            _comEngine = comEngine;
         }
 
         // ── START / STOP ──────────────────────────────────────────────────────
 
         public void Start()
         {
-            if (!SystemConfig.IsSimulationMode)
-                TryConnect();
-
             _timer = new System.Timers.Timer(2000) { AutoReset = true };
             _timer.Elapsed += (s, e) => Poll();
             _timer.Start();
@@ -49,7 +49,6 @@ namespace HelideckVer2.Services
             _timer?.Stop();
             _timer?.Dispose();
             _timer = null;
-            TryClose();
         }
 
         public void Dispose() => Stop();
@@ -64,16 +63,18 @@ namespace HelideckVer2.Services
                 return;
             }
 
-            if (!_connected) { TryConnect(); return; }
+            // Borrow the port that ComEngine is managing — null means port is not yet open
+            SerialPort port = _comEngine?.GetManagedPort(_portName);
+            if (port == null || !port.IsOpen) return;
 
             try
             {
                 byte[] req = BuildRequest(slaveId: 1, startAddr: 0x0000, count: 3);
-                _port.DiscardInBuffer();
-                _port.Write(req, 0, req.Length);
+                port.DiscardInBuffer();
+                port.Write(req, 0, req.Length);
 
                 // Expected response: SlaveID(1) + FC(1) + ByteCount(1) + Data(6) + CRC(2) = 11 bytes
-                byte[] resp = ReadExact(11);
+                byte[] resp = ReadExact(port, 11);
                 if (!ValidateResponse(resp, slaveId: 1, fc: 0x03, dataBytes: 6))
                     return;
 
@@ -87,7 +88,7 @@ namespace HelideckVer2.Services
             }
             catch
             {
-                _connected = false;
+                // Port may have disconnected — ComEngine watchdog will detect and reopen it
             }
         }
 
@@ -108,36 +109,13 @@ namespace HelideckVer2.Services
 
         // ── SERIAL HELPERS ────────────────────────────────────────────────────
 
-        private void TryConnect()
+        private static byte[] ReadExact(SerialPort port, int count)
         {
-            TryClose();
-            try
-            {
-                _port = new SerialPort(_portName, _baudRate, Parity.None, 8, StopBits.One)
-                {
-                    ReadTimeout  = 600,
-                    WriteTimeout = 300
-                };
-                _port.Open();
-                _connected = true;
-            }
-            catch { _connected = false; }
-        }
-
-        private void TryClose()
-        {
-            try { _port?.Close(); } catch { }
-            _port      = null;
-            _connected = false;
-        }
-
-        private byte[] ReadExact(int count)
-        {
-            var buf = new byte[count];
+            var buf  = new byte[count];
             int read = 0;
             while (read < count)
             {
-                int n = _port.Read(buf, read, count - read);
+                int n = port.Read(buf, read, count - read);
                 if (n == 0) break;
                 read += n;
             }
