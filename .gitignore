@@ -365,3 +365,7 @@ FodyWeavers.xsd
 # Internal AI/dev documentation — not for public repo
 PROJECT_BLUEPRINT.md
 HelideckVer2/CLAUDE.md
+
+# Claude Code local settings and cache
+.claude/settings.local.json
+.claude/cache/
