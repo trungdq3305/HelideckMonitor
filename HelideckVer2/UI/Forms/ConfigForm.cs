@@ -19,7 +19,6 @@ namespace HelideckVer2
 
         // ── COM Config tab ───────────────────────────────────────────────────
         private DataGridView dgvComConfig;
-        private CheckBox chkSimulationMode;
         private Button _btnDay, _btnNight;
         private bool _pendingIsLight;
         private bool _originalTheme;
@@ -40,7 +39,7 @@ namespace HelideckVer2
         {
             new DeviceTask { TaskName = "GPS",     PortName = "COM1", BaudRate = 9600 },
             new DeviceTask { TaskName = "WIND",    PortName = "COM2", BaudRate = 4800 },
-            new DeviceTask { TaskName = "R/P/H",   PortName = "COM3", BaudRate = 9600 },
+            new DeviceTask { TaskName = "MRU",     PortName = "COM3", BaudRate = 115200 },
             new DeviceTask { TaskName = "HEADING", PortName = "COM4", BaudRate = 4800 },
             new DeviceTask { TaskName = "METEO",   PortName = "COM5", BaudRate = 9600 }
         };
@@ -111,17 +110,6 @@ namespace HelideckVer2
                 Padding   = new Padding(10)
             };
 
-            chkSimulationMode = new CheckBox
-            {
-                Text      = "Enable Simulation Mode (Fake Data)",
-                AutoSize  = true,
-                Font      = new Font("Segoe UI", 9, FontStyle.Bold),
-                ForeColor = Palette.BtnSettingsFg,
-                BackColor = Color.Transparent,
-                Dock      = DockStyle.Left,
-                Padding   = new Padding(10, 8, 0, 0)
-            };
-
             var btnSave = new Button
             {
                 Text      = "SAVE / EXIT",
@@ -163,7 +151,6 @@ namespace HelideckVer2
                     SystemConfig.IsLightTheme = _originalTheme;
             };
 
-            pnlBottom.Controls.Add(chkSimulationMode);
             pnlBottom.Controls.Add(_btnDay);
             pnlBottom.Controls.Add(_btnNight);
             pnlBottom.Controls.Add(btnSave);
@@ -650,7 +637,6 @@ namespace HelideckVer2
             numRoll.Value = (decimal)SystemConfig.RMax;
             numPitch.Value = (decimal)SystemConfig.PMax;
             numHeave.Value = (decimal)SystemConfig.HMax;
-            chkSimulationMode.Checked = SystemConfig.IsSimulationMode;
             _originalTheme  = SystemConfig.IsLightTheme;
             _pendingIsLight = SystemConfig.IsLightTheme;
             UpdateThemeButtons();
@@ -666,7 +652,6 @@ namespace HelideckVer2
             SystemConfig.RMax = (double)numRoll.Value;
             SystemConfig.PMax = (double)numPitch.Value;
             SystemConfig.HMax = (double)numHeave.Value;
-            SystemConfig.IsSimulationMode = chkSimulationMode.Checked;
             SystemConfig.IsLightTheme = _pendingIsLight;
 
             foreach (DataGridViewRow row in dgvComConfig.Rows)

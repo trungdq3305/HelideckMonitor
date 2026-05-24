@@ -11,9 +11,9 @@ namespace HelideckVer2.Models
         public List<DeviceTask> Tasks { get; set; } = new List<DeviceTask> {
         new DeviceTask { TaskName = "GPS",     PortName = "COM1", BaudRate = 9600 },
         new DeviceTask { TaskName = "WIND",    PortName = "COM2", BaudRate = 4800 },
-        new DeviceTask { TaskName = "R/P/H",   PortName = "COM3", BaudRate = 9600 },
         new DeviceTask { TaskName = "HEADING", PortName = "COM4", BaudRate = 4800 },
-        new DeviceTask { TaskName = "METEO",   PortName = "COM5", BaudRate = 9600 }
+        new DeviceTask { TaskName = "METEO",   PortName = "COM5", BaudRate = 9600 },
+        new DeviceTask { TaskName = "MRU",     PortName = "COM3", BaudRate = 115200 }
     };
         public bool IsSimulationMode { get; set; } = true;
         public bool IsLightTheme { get; set; } = false;

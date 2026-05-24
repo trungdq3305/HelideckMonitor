@@ -48,7 +48,9 @@ namespace HelideckVer2
 
         private System.Windows.Forms.Timer _healthTimer, _snapshotTimer, _chartUpdateTimer;
         private System.Windows.Forms.Timer _uiUpdateTimer;
-        private MeteoService _meteoService;
+        private MeteoService    _meteoService;
+        private MruService      _mruService;
+        private SimulationEngine _simEngine;
 
         private double _rollOffset  = 0.0;
         private double _pitchOffset = 0.0;
@@ -117,7 +119,6 @@ namespace HelideckVer2
             _nmeaParser.SetPortTasks(ConfigForm.Tasks);
             _nmeaParser.OnHeadingParsed  += HandleHeading;
             _nmeaParser.OnWindParsed     += HandleWind;
-            _nmeaParser.OnMotionParsed   += HandleMotion;
             _nmeaParser.OnPositionParsed += HandlePosition;
             _nmeaParser.OnSpeedParsed    += HandleSpeed;
 
@@ -125,26 +126,22 @@ namespace HelideckVer2
             _comEngine = new ComEngine();
             _comEngine.OnDataReceived += OnComDataReceived;
 
-            if (SystemConfig.IsSimulationMode)
+            this.FormClosed += (s, e) =>
             {
-                var sim = new SimulationEngine();
-                sim.Start(OnComDataReceived);
-                this.Text += "  [SIMULATION]";
-            }
-            else
-            {
-                _comEngine.Initialize(_taskList);
-            }
+                // Capture references rồi cleanup trên background thread
+                // tránh SerialPort.Close() block UI thread khi có pending read
+                var sim = _simEngine; var mru = _mruService;
+                var meteo = _meteoService; var com = _comEngine;
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try { sim?.Stop();   } catch { }
+                    try { mru?.Stop();   } catch { }
+                    try { meteo?.Stop(); } catch { }
+                    try { com?.Dispose();} catch { }
+                });
+            };
 
-            // MeteoService — Modbus RTU / RK330-01 (COM5)
-            // Port is managed by ComEngine; MeteoService only handles Modbus polling
-            var meteoTask = ConfigForm.Tasks.Find(t => t.TaskName == "METEO");
-            if (meteoTask != null)
-            {
-                _meteoService = new MeteoService(meteoTask.PortName, meteoTask.BaudRate, _comEngine);
-                _meteoService.Start();
-            }
-            this.FormClosed += (s, e) => _meteoService?.Stop();
+            StartDataPipeline();
 
             // Alarm Engine
             _alarmEngine = new AlarmEngine();
@@ -444,11 +441,11 @@ namespace HelideckVer2
                 values[i].AutoSize  = false;
                 values[i].Dock      = DockStyle.Fill;
                 values[i].TextAlign = ContentAlignment.MiddleCenter;
+                values[i].Padding   = new Padding(0, 0, 0, 4);
                 values[i].BackColor = Color.Transparent;
                 values[i].ForeColor = Palette.OkFg;
 
                 if (i == 0)  values[i].ForeColor = Palette.TextGps;       // POSITION
-                if (i == 5)  values[i].ForeColor = Palette.SeriesHeave;  // HEAVE
                 if (i == 9)  values[i].ForeColor = Palette.SeriesRoll;   // TEMP
                 if (i == 10) values[i].ForeColor = Palette.SeriesWSpeed; // HUMIDITY
 
@@ -479,11 +476,13 @@ namespace HelideckVer2
                 {
                     if (card.Height <= 0 || card.Width <= 0) return;
 
-                    titles[idx].Height = Math.Max(20, (int)(card.Height * 0.28f));
+                    int titleH = Math.Max(20, (int)(card.Height * 0.28f));
+                    titles[idx].Height = titleH;
 
+                    int unitH = 0;
                     if (_unitLabels[idx] != null && !string.IsNullOrEmpty(_unitLabels[idx].Text))
                     {
-                        int unitH = Math.Max(22, (int)(card.Height * 0.22f));
+                        unitH = Math.Max(22, (int)(card.Height * 0.22f));
                         _unitLabels[idx].Height = unitH;
                         float uf = Math.Max(10f, Math.Min(card.Height * 0.13f, 16f));
                         SafeSetFont(_unitLabels[idx], uf);
@@ -492,10 +491,23 @@ namespace HelideckVer2
                     float tf = Math.Max(8f, Math.Min(Math.Min(card.Height * 0.10f, card.Width * 0.08f), 18f));
                     SafeSetFont(titles[idx], tf);
 
-                    // vf: số thuần (không có unit trong text) → có thể dùng hệ số rộng hơn
-                    float vf = idx == 0
-                        ? Math.Max(8f,  Math.Min(Math.Min(card.Height * 0.14f, card.Width * 0.055f), 20f))
-                        : Math.Max(10f, Math.Min(Math.Min(card.Height * 0.32f, card.Width * 0.22f), 42f));
+                    // Tính fillH thực tế (không dùng hệ số card.Height cố định vì min-constraints ăn mất chỗ)
+                    int fillH = Math.Max(1, card.Height - titleH - unitH);
+
+                    float vf;
+                    if (idx == 0)
+                    {
+                        vf = Math.Max(8f, Math.Min(Math.Min(card.Height * 0.14f, card.Width * 0.055f), 20f));
+                    }
+                    else
+                    {
+                        // pt → px: pt * DpiX/72 * lineSpacingRatio(≈1.21 Segoe UI)
+                        // Đảo ngược: safe_pt = fillH / (DpiX/72 * 1.21) * 0.82 (safety margin)
+                        float dpiScale  = Math.Max(96f, card.DeviceDpi) / 96f;
+                        float maxByFill = fillH * 0.53f / dpiScale;
+                        float maxByWidth = card.Width * 0.20f;
+                        vf = Math.Max(10f, Math.Min(Math.Min(maxByFill, maxByWidth), 36f));
+                    }
                     SafeSetFont(values[idx], vf);
                 };
 
@@ -661,7 +673,13 @@ namespace HelideckVer2
             lblWindRelated.Text= $"{snap.WindDirDeg:0}";
             lblRoll.Text       = $"{snap.RollDeg:0.0}";
             lblPitch.Text      = $"{snap.PitchDeg:0.0}";
-            lblHeave.Text      = $"{snap.HeaveCm:0.0}";
+            lblHeave.Text      = $"{Math.Abs(snap.HeaveCm):0.0}";
+
+            // Update alarm tags từ DataHub (MruService ghi trực tiếp vào DataHub, không qua event)
+            _rollTag.Update(snap.RollDeg);
+            _pitchTag.Update(snap.PitchDeg);
+            _heaveTag.Update(Math.Abs(snap.HeaveCm));
+            _rawHeaveCm = snap.HeaveCm;  // có dấu — dùng để tính zero-crossing chu kỳ heave
             lblSpeed.Text      = $"{snap.GpsSpeedKnot:0.0}";
 
             if (snap.GpsLat == "NO FIX")
@@ -1038,6 +1056,43 @@ namespace HelideckVer2
             int x = widths[0];
             using var pen = new Pen(Palette.BorderCard, 2);
             e.Graphics.DrawLine(pen, x, 0, x, tableLayoutPanel1.Height);
+        }
+
+        // ── DATA PIPELINE START/STOP ─────────────────────────────────────────
+
+        private void StartDataPipeline()
+        {
+            if (SystemConfig.IsSimulationMode)
+            {
+                _simEngine = new SimulationEngine();
+                _simEngine.Start(OnComDataReceived);
+            }
+            else
+            {
+                _comEngine.Initialize(_taskList);
+            }
+
+            var meteoTask = ConfigForm.Tasks.Find(t => t.TaskName == "METEO");
+            if (meteoTask != null)
+            {
+                _meteoService = new MeteoService(meteoTask.PortName, meteoTask.BaudRate, _comEngine);
+                _meteoService.Start();
+            }
+
+            var mruTask = ConfigForm.Tasks.Find(t => t.TaskName == "MRU");
+            if (mruTask != null)
+            {
+                _mruService = new MruService(mruTask.PortName ?? "", mruTask.BaudRate, _comEngine);
+                _mruService.Start();
+            }
+
+            UpdateSimTitle();
+        }
+
+        private void UpdateSimTitle()
+        {
+            string baseTitle = this.Text.Replace("  [SIMULATION]", "").TrimEnd();
+            this.Text = SystemConfig.IsSimulationMode ? baseTitle + "  [SIMULATION]" : baseTitle;
         }
 
         // Panel that always fills its background from the current Palette,

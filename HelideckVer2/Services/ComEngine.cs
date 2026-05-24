@@ -64,7 +64,7 @@ namespace HelideckVer2.Services
 
                     bool isMissing = !_managedPorts.ContainsKey(task.PortName);
                     bool isClosed  = !isMissing && !_managedPorts[task.PortName].IsOpen;
-                    bool isModbus  = task.TaskName == "METEO";
+                    bool isModbus  = task.TaskName == "METEO" || task.TaskName == "MRU";
                     bool isTimeout = false;
 
                     // Modbus ports don't stream data — skip inactivity timeout
@@ -115,7 +115,7 @@ namespace HelideckVer2.Services
 
         private void TryOpenPort(DeviceTask task)
         {
-            bool isModbus = task.TaskName == "METEO";
+            bool isModbus = task.TaskName == "METEO" || task.TaskName == "MRU";
 
             try
             {
@@ -133,7 +133,13 @@ namespace HelideckVer2.Services
                         RtsEnable              = true,
                         ReceivedBytesThreshold = 1
                     };
-                    if (isModbus)
+                    if (task.TaskName == "MRU")
+                    {
+                        // XBus binary stream — blocking read in MruService thread
+                        sp.ReadTimeout  = 1000;
+                        sp.WriteTimeout = 300;
+                    }
+                    else if (isModbus)
                     {
                         // Modbus RTU: synchronous request-response — no DataReceived event needed
                         sp.ReadTimeout  = 600;

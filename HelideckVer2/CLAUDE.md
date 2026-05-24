@@ -35,11 +35,13 @@ dotnet build -c Release HelideckVer2.sln
 
 ### Data Pipeline (Main Flow)
 ```
-COM Ports (COM1–COM5)
-  ↓ ComEngine (manages all 5 ports, watchdog + retry)
-  │   COM1–COM4: ReadExisting (non-blocking NMEA stream)
+COM Ports (COM1–COM6+)
+  ↓ ComEngine (manages all ports, watchdog + retry)
+  │   COM1, COM2, COM4: ReadExisting (non-blocking NMEA stream)
   │   COM5:      Modbus RTU — MeteoService borrows port via GetManagedPort()
-  ↓ NmeaParserService (validate XOR checksum, dispatch by sentence type)
+  │   COM3 (MRU): XBus binary — MruService read thread borrows port via GetManagedPort()
+  ↓ NmeaParserService (validate XOR checksum, dispatch by sentence type)  ← GPS/WIND/HEADING only
+  ↓ MruService  (parse XBus MTData2, run XsensMruProcessor)               ← Roll/Pitch/Heave (sole source)
   ↓ HelideckDataHub (thread-safe singleton, lock)
   ↓ UI Timers (100ms update) + DataLogger (10s flush to disk)
 ```
@@ -49,12 +51,14 @@ COM Ports (COM1–COM5)
 | File | Responsibility |
 |------|----------------|
 | **Services/** | |
-| `Services/ComEngine.cs` | Opens all COM ports (COM1–COM5), watchdog + exponential backoff retry. NMEA ports: `DataReceived` event + `ReadExisting`. METEO port: no `DataReceived` — skips inactivity timeout, exposes `GetManagedPort()` for MeteoService |
+| `Services/ComEngine.cs` | Opens all COM ports, watchdog + exponential backoff retry. NMEA ports: `DataReceived` event + `ReadExisting`. METEO/MRU ports: no `DataReceived` — skips inactivity timeout, exposes `GetManagedPort()` for MeteoService/MruService |
 | `Services/Parsing/NmeaParserService.cs` | Validates XOR checksum, dispatches by sentence type, fires typed events. 5 consecutive failures → freeze last known values |
 | `Services/AlarmEngine.cs` | Evaluates all alarms every 100ms |
 | `Services/DataLogger.cs` | Enqueues lines to `ConcurrentQueue`, flushes to CSV every 10s. Auto-deletes logs older than 30 days |
 | `Services/SimulationEngine.cs` | Generates valid NMEA sentences with correct checksums at 100ms intervals |
 | `Services/MeteoService.cs` | Modbus RTU polling (RK330-01) via RS485/COM5 every 2s — temp, humidity, pressure. **Port lifecycle delegated to ComEngine** — MeteoService calls `_comEngine.GetManagedPort("COM5")` each poll; if null (port not yet open) poll silently skips. Simulation mode generates random values |
+| `Services/MruService.cs` | **Sole source of Roll/Pitch/Heave.** Background thread reads `FA FF 36` frames from COM port, parses MTData2 (Euler 0x2030, FreeAcc 0x4030, RoT 0x8020), runs `XsensMruProcessor`, writes Roll/Pitch/Heave(cm) to DataHub slot "R/P/H". Simulation mode generates random drift via `System.Timers.Timer`. Always started (task "MRU" always present in config, default port COM3). **Port lifecycle delegated to ComEngine** via `GetManagedPort()`. |
+| `Services/Mru/XsensMruProcessor.cs` | Algorithm: double-integration of vertical acceleration for heave (low-pass + high-pass filters), rotation matrix body→earth, heave offset at bow/stern/sensor positions. Classes: `Vec3`, `LowPassFilter`, `HighPassFilter`, `MruOutput`, `XsensMruProcessor` |
 | `Services/ConfigService.cs` | Loads `config.json` at startup, applies to `SystemConfig` |
 | `Services/SystemLogger.cs` | Static logger, thread-safe via `lock (_lockObj)` |
 | **Core/** | |
@@ -80,12 +84,10 @@ COM Ports (COM1–COM5)
 |----------|------|--------|
 | `$xxHDT` | COM4 (HEADING) | Heading (°) |
 | `$xxMWV` | COM2 (WIND) | Wind speed (m/s), direction (°) |
-| `$CNTB` | COM3 (R/P/H) | Roll (°), pitch (°), heave (cm) — Teledyne/Kongsberg format |
-| `$PRDID` | COM3 (R/P/H) | Pitch, roll; heave = `HeaveArm × sin(pitch)` |
-| `$PASHR` | COM3 (R/P/H) | **Xsens Sirius AHRS** — roll, pitch; heave direct from SDI (m→cm) if field present, else HeaveArm fallback. Supports both with-timestamp and without-timestamp variants |
-| `$PHTRO` | COM3 (R/P/H) | Xsens proprietary pitch/roll; heave = `HeaveArm × sin(pitch)` |
 | `$xxGGA` | COM1 (GPS) | Lat/lon formatted as `DD°MM.MMM'D` |
 | `$xxVTG` | COM1 (GPS) | Speed (knots) — field p[5] |
+
+> **Note:** Roll/Pitch/Heave không còn đến từ NMEA. COM3 được dành cho MRU (XBus binary). Các sentence `$CNTB`, `$PRDID`, `$PASHR`, `$PHTRO` vẫn có trong `NmeaParserService` nhưng không còn được subscribe.
 
 ### Alarm System
 - **Flow:** `Tag` (mutable value holder) → `Alarm` (compares `Tag.Value > HighLimitProvider()`) → `AlarmEngine.Evaluate()` every 100ms
@@ -110,6 +112,7 @@ COM Ports (COM1–COM5)
 | `HelideckDataHub` | `lock (_lockData)` for all reads/writes |
 | `ComEngine` | `_portLock` for ports, `_bufferLock` for line buffers, `ConcurrentDictionary` for timestamps |
 | `MeteoService` | `System.Timers.Timer` callback (threadpool). Reads COM5 via `GetManagedPort()` which acquires `_portLock` inside ComEngine |
+| `MruService` | Dedicated background `Thread`. Blocking `port.Read()` in `ProcessPort()`. ComEngine opens/retries port; MruService catches IOException and loops back to `GetManagedPort()`. |
 | `DataLogger` | `ConcurrentQueue` enqueue from any thread, flush via `System.Timers.Timer` |
 | `SystemLogger` | `lock (_lockObj)` |
 | UI updates | Windows Forms timer only (UI thread) |
@@ -197,7 +200,7 @@ picBox.Image     = (Image)tmp.Clone();
 }
 ```
 
-When enabled, `SimulationEngine` generates valid NMEA sentences with correct checksums at 100ms intervals and calls `OnComDataReceived` directly — `ComEngine.Initialize()` is not called (COM ports stay closed). `MeteoService` detects `IsSimulationMode = true` and generates random drift values; `GetManagedPort()` returns null but is never reached in simulation path.
+When enabled, `SimulationEngine` generates valid NMEA sentences with correct checksums at 100ms intervals and calls `OnComDataReceived` directly — `ComEngine.Initialize()` is not called (COM ports stay closed). `MeteoService` detects `IsSimulationMode = true` and generates random drift values. `MruService` detects `IsSimulationMode = true` and runs a `System.Timers.Timer` at 100ms generating random roll/pitch/heave drift instead of reading the COM port.
 
 ## MeteoService — RK330-01 Modbus RTU
 
@@ -219,6 +222,36 @@ When enabled, `SimulationEngine` generates valid NMEA sentences with correct che
 
 Data flows: `MeteoService.Poll()` → `HelideckDataHub.UpdateMeteoData()` → `_uiUpdateTimer` reads via `GetSnapshot()` → `_lblTemp` / `_lblHumidity` + `TrendChartControl.PushEnvData()`.
 
+## MruService — Xsens MTi XBus Binary
+
+| Parameter | Value |
+|-----------|-------|
+| Task name | `"MRU"` in config (default PortName = `""` — inactive until set) |
+| Protocol | XBus MTData2, frame: `FA FF 36 LEN [items...] CS` |
+| DataID Euler | `0x2030` — float32 roll, pitch, yaw (degrees) |
+| DataID FreeAcc | `0x4030` — float32 ax, ay, az (m/s²) |
+| DataID RateOfTurn | `0x8020` — float32 wx, wy, wz (rad/s) |
+| DataID SampleTimeFine | `0x1060` — uint32, hardware clock 10kHz (0.1ms resolution), used for dt |
+| Checksum | sum(BID..CS) & 0xFF == 0; extended-length frames include 0xFF+hi+lo in sum |
+| Byte order | Big-endian (float32 bytes reversed before `BitConverter.ToSingle`) |
+| dt source | SampleTimeFine when available (uint32 rollover-safe subtraction / 10000.0); fallback DateTime.UtcNow |
+| Output | Writes to DataHub "R/P/H" — coexists with NMEA R/P/H task; whichever updates last wins |
+| Heave unit | `HeaveCg` in metres → multiplied ×100 → cm before writing to DataHub |
+| ReadTimeout | 1000ms (set by ComEngine on port open) |
+
+**Port lifecycle**: ComEngine opens the MRU port (no `DataReceived` subscription, no 10s inactivity timeout). MruService background thread calls `GetManagedPort()` in a loop; if null, sleeps 500ms and retries. IOException (port closed) → sleeps 200ms → loop retries `GetManagedPort()`.
+
+**Constructor**: `new MruService(portName, baudRate, _comEngine)`.
+
+**Sensor position offsets**: Set on `_mruService.Processor` after construction if bow/stern compensation is needed:
+```csharp
+_mruService.Processor.SensorPositionFromCg = new Vec3(x, y, z);  // metres
+_mruService.Processor.BowPointFromCg       = new Vec3(x, 0, 0);
+_mruService.Processor.SternPointFromCg     = new Vec3(-x, 0, 0);
+```
+
+**Activate MRU**: Settings → COM Configuration → set task "MRU" to a COM port → restart app.
+
 ## Common Tasks
 
 ### Add a new NMEA sentence type
@@ -227,13 +260,21 @@ Data flows: `MeteoService.Poll()` → `HelideckDataHub.UpdateMeteoData()` → `_
 3. Update `HelideckDataHub` to store the value
 4. Bind to UI label / chart in `MainForm.cs`
 
-### Connect Xsens Sirius AHRS
+### Connect Xsens Sirius AHRS (NMEA mode)
 Configure Xsens MT Manager to output one of (priority order):
 1. `$PASHR` — gives direct SDI heave (most accurate)
 2. `$PRDID` — heave approximated from HeaveArm × sin(pitch)
 3. `$PHTRO` — heave approximated
 
 Leave `SentenceType` empty in Settings for COM3 (auto-detect). No code changes needed.
+
+### Connect Xsens MTi MRU (XBus binary mode)
+Configure Xsens MT Manager to output MTData2 with:
+- Euler Angles (DataID 0x2030)
+- Free Acceleration (DataID 0x4030)
+- Rate of Turn (DataID 0x8020)
+
+In Settings → COM Configuration, set task "MRU" to the correct COM port (e.g. COM3). Restart app. MruService will automatically parse XBus frames and write Roll/Pitch/Heave to DataHub. To configure bow/stern offsets, edit `_mruService.Processor.*` fields in `MainForm.cs` after `_mruService` is created.
 
 ### Change vessel image live
 Settings (requires login) → Vessel Image tab → Browse → Save. No restart needed.
@@ -258,6 +299,8 @@ Edit `SystemConfig` static properties or update `config.json` — limits are `Fu
 | Theme not updating a control | Check if it uses `CardPanel` + `Color.Transparent` labels; avoid captured color variables |
 | Vessel image not reloading | Ensure `SystemConfig.RaiseVesselImageChanged()` is called after file copy in `BtnSave_Click` |
 | METEO badge stays WAIT | Check COM5 assignment in Settings; RS485 A/B polarity; try swapping wires. ComEngine watchdog opens COM5 — check SystemLogger for `[COM] COM5 offline` entries |
+| MRU data not updating | Verify task "MRU" has PortName set in Settings. Check SystemLogger for `[COM] COMx offline`. Confirm MTi outputs MTData2 with Euler+FreeAcc+RoT. Verify baud rate matches MT Manager (default 115200). |
+| Numbers cut off at bottom in cards | CardPanel `card.Resize` computes `fillH = card.Height - titleH - unitH` and derives font via `fillH * 0.53f / dpiScale` — do NOT revert to `card.Height * 0.28f` formula which ignores min-height constraints and clips at high DPI. |
 
 ## Notes
 - **No unit tests** — use Simulation Mode for functional testing
@@ -280,6 +323,8 @@ Edit `SystemConfig` static properties or update `config.json` — limits are `Fu
 - `Services/DataLogger.cs` — logging issues
 - `Services/SimulationEngine.cs` — simulation mode
 - `Services/MeteoService.cs` — Modbus RTU / temperature-humidity-pressure
+- `Services/MruService.cs` — Xsens MTi XBus binary / Roll-Pitch-Heave
+- `Services/Mru/XsensMruProcessor.cs` — heave integration algorithm
 - `Services/ConfigService.cs` — config load/save
 - `Services/SystemLogger.cs` — debug logging
 - `UI/Controls/RadarControl.cs` — radar display bugs

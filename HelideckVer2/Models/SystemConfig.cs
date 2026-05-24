@@ -8,9 +8,10 @@ namespace HelideckVer2.Models
 {
     public static class SystemConfig
     {
-        public static bool IsSimulationMode { get; set; } = true;
         public static event Action ThemeChanged;
         public static event Action VesselImageChanged;
+
+        public static bool IsSimulationMode { get; set; } = false;
         public static void RaiseVesselImageChanged() => VesselImageChanged?.Invoke();
 
         private static bool _isLightTheme = false;
