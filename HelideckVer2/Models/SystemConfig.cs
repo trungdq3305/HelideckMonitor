@@ -30,9 +30,9 @@ namespace HelideckVer2.Models
 
         // Các giới hạn báo động (Alarm Limits)
         public static double WindMax { get; set; } = 40.0;
-        public static double RMax { get; set; } = 3.0;
+        public static double RMax { get; set; } = 2.0;
         public static double PMax { get; set; } = 3.0;
-        public static double HMax { get; set; } = 2.0;
+        public static double HMax { get; set; } = 200.0;
         public static void Apply(HelideckVer2.Models.AppConfig cfg)
         {
             IsSimulationMode = cfg.IsSimulationMode;

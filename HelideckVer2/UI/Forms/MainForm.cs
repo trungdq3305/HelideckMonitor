@@ -132,12 +132,14 @@ namespace HelideckVer2
                 // tránh SerialPort.Close() block UI thread khi có pending read
                 var sim = _simEngine; var mru = _mruService;
                 var meteo = _meteoService; var com = _comEngine;
+                var log = _logger;
                 System.Threading.Tasks.Task.Run(() =>
                 {
-                    try { sim?.Stop();   } catch { }
-                    try { mru?.Stop();   } catch { }
-                    try { meteo?.Stop(); } catch { }
-                    try { com?.Dispose();} catch { }
+                    try { sim?.Stop();    } catch { }
+                    try { mru?.Stop();    } catch { }
+                    try { meteo?.Stop();  } catch { }
+                    try { com?.Dispose(); } catch { }
+                    try { log?.Dispose(); } catch { }  // flush remaining log data before exit
                 });
             };
 

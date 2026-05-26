@@ -28,8 +28,9 @@ namespace HelideckVer2.Services
                 var json = File.ReadAllText(ConfigPath);
                 return JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig();
             }
-            catch
+            catch (Exception ex)
             {
+                SystemLogger.LogError("ConfigService.Load: failed to parse config.json, using defaults", ex);
                 return new AppConfig();
             }
         }

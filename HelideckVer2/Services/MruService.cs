@@ -123,9 +123,9 @@ namespace HelideckVer2.Services
                 {
                     ProcessPort(port);
                 }
-                catch (Exception ex) when (ex is TimeoutException || ex is InvalidOperationException || ex is System.IO.IOException)
+                catch (Exception)
                 {
-                    // Port bị đóng hoặc lỗi IO — ComEngine watchdog sẽ mở lại
+                    // Port closed, disposed, or IO error — ComEngine watchdog will reopen
                     Thread.Sleep(200);
                 }
             }

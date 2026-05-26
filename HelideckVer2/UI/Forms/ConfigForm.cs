@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.IO.Ports;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -269,47 +271,133 @@ namespace HelideckVer2
 
         private void SetupComTab(Panel tab)
         {
+            // SplitContainer guarantees correct layout regardless of add order
+            var split = new SplitContainer
+            {
+                Dock             = DockStyle.Fill,
+                Orientation      = Orientation.Horizontal,
+                SplitterDistance = 36,
+                FixedPanel       = FixedPanel.Panel1,
+                IsSplitterFixed  = true,
+                Panel1MinSize    = 36,
+                SplitterWidth    = 1
+            };
+            split.Panel1.BackColor = Palette.PanelBg;
+            split.Panel2.BackColor = Palette.CardBg;
+
             var lbl = new Label
             {
-                Text      = "Edit COM port assignments. Baud rate is set in config.json only.",
-                Dock      = DockStyle.Top,
-                Height    = 28,
+                Text      = "Select COM port for each device. USB appears as a virtual COM port.",
+                Dock      = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Font      = new Font("Segoe UI", 8.5f),
                 ForeColor = Palette.TextLabel,
                 BackColor = Color.Transparent,
-                Padding   = new Padding(4, 0, 0, 0)
+                Padding   = new Padding(6, 0, 0, 0)
             };
-            tab.Controls.Add(lbl);
+
+            var btnRefresh = new Button
+            {
+                Text      = "⟳  Refresh",
+                Dock      = DockStyle.Right,
+                Width     = 100,
+                BackColor = Palette.BtnPrimaryBg,
+                ForeColor = Palette.BtnPrimaryFg,
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Segoe UI", 8.5f, FontStyle.Bold)
+            };
+            btnRefresh.FlatAppearance.BorderColor = Palette.BorderCard;
+            btnRefresh.FlatAppearance.BorderSize  = 1;
+            btnRefresh.Click += (s, e) => RefreshPortList();
+
+            split.Panel1.Controls.Add(lbl);
+            split.Panel1.Controls.Add(btnRefresh);
 
             dgvComConfig = new DataGridView
             {
-                Dock                    = DockStyle.Fill,
-                AutoSizeColumnsMode     = DataGridViewAutoSizeColumnsMode.Fill,
-                AllowUserToAddRows      = false,
-                AllowUserToDeleteRows   = false,
-                RowHeadersVisible       = false,
-                BackgroundColor         = Palette.CardBg,
-                GridColor               = Palette.BorderCard,
-                BorderStyle             = BorderStyle.None,
+                Dock                      = DockStyle.Fill,
+                AutoSizeColumnsMode       = DataGridViewAutoSizeColumnsMode.Fill,
+                AllowUserToAddRows        = false,
+                AllowUserToDeleteRows     = false,
+                RowHeadersVisible         = false,
+                BackgroundColor           = Palette.CardBg,
+                GridColor                 = Palette.BorderCard,
+                BorderStyle               = BorderStyle.None,
                 EnableHeadersVisualStyles = false,
-                SelectionMode           = DataGridViewSelectionMode.FullRowSelect,
-                EditMode                = DataGridViewEditMode.EditOnKeystrokeOrF2
+                SelectionMode             = DataGridViewSelectionMode.FullRowSelect,
+                EditMode                  = DataGridViewEditMode.EditOnEnter
             };
             dgvComConfig.ColumnHeadersDefaultCellStyle.BackColor = Palette.PanelBg;
             dgvComConfig.ColumnHeadersDefaultCellStyle.ForeColor = Palette.TextLabel;
-            dgvComConfig.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            dgvComConfig.ColumnHeadersDefaultCellStyle.Font      = new Font("Segoe UI", 9f, FontStyle.Bold);
             dgvComConfig.DefaultCellStyle.BackColor          = Palette.CardBg;
             dgvComConfig.DefaultCellStyle.ForeColor          = Palette.TextValue;
             dgvComConfig.DefaultCellStyle.SelectionBackColor = Palette.SurfaceHi;
             dgvComConfig.DefaultCellStyle.SelectionForeColor = Palette.TextValue;
 
-            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Task", HeaderText = "Task",                ReadOnly = true, FillWeight = 80 });
-            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Port", HeaderText = "COM Port",             FillWeight = 90 });
-            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn { Name = "Baud", HeaderText = "Baud Rate (config.json)", ReadOnly = true, FillWeight = 100 });
+            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn
+                { Name = "Task", HeaderText = "Task", ReadOnly = true, FillWeight = 80 });
+            dgvComConfig.Columns.Add(new DataGridViewComboBoxColumn
+            {
+                Name = "Port", HeaderText = "COM Port",
+                FillWeight = 90, DisplayStyleForCurrentCellOnly = false, FlatStyle = FlatStyle.Flat
+            });
+            dgvComConfig.Columns.Add(new DataGridViewTextBoxColumn
+                { Name = "Baud", HeaderText = "Baud Rate", ReadOnly = true, FillWeight = 100 });
 
-            tab.Controls.Add(dgvComConfig);
-            lbl.BringToFront();
+            dgvComConfig.EditingControlShowing += (s, e) =>
+            {
+                if (dgvComConfig.CurrentCell?.OwningColumn?.Name == "Port" && e.Control is ComboBox cb)
+                {
+                    string current = cb.Text;           // preserve before style change resets selection
+                    cb.DropDownStyle = ComboBoxStyle.DropDown;
+                    if (cb.Text != current) cb.Text = current;  // restore current port value
+                    cb.Validating   -= PortComboValidating;
+                    cb.Validating   += PortComboValidating;
+                }
+            };
+            dgvComConfig.DataError += (s, e) => { e.ThrowException = false; };
+
+            split.Panel2.Controls.Add(dgvComConfig);
+            tab.Controls.Add(split);
+        }
+
+        private void RefreshPortList()
+        {
+            // COM1–COM5: standard IPC ports, always shown regardless of Windows registration
+            var baseline = Enumerable.Range(1, 5).Select(i => $"COM{i}");
+
+            var ports = baseline
+                .Concat(SerialPort.GetPortNames())                                    // add detected (USB virtual, etc.)
+                .Concat(Tasks.Where(t => !string.IsNullOrEmpty(t.PortName))           // add currently configured
+                             .Select(t => t.PortName))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p.StartsWith("COM") && int.TryParse(p[3..], out int n) ? n : 999)
+                .ToList();
+
+            var col = (DataGridViewComboBoxColumn)dgvComConfig.Columns["Port"];
+            col.Items.Clear();
+            col.Items.Add("");
+            foreach (var p in ports) col.Items.Add(p);
+
+            // Keep any manually typed value not yet in the list
+            foreach (DataGridViewRow row in dgvComConfig.Rows)
+            {
+                string cur = row.Cells["Port"].Value?.ToString() ?? "";
+                if (!string.IsNullOrEmpty(cur) && !col.Items.Contains(cur))
+                    col.Items.Add(cur);
+            }
+        }
+
+        private void PortComboValidating(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            if (sender is not ComboBox cb) return;
+            string v = cb.Text.Trim().ToUpperInvariant();
+            if (string.IsNullOrEmpty(v)) return;
+            var col = (DataGridViewComboBoxColumn)dgvComConfig.Columns["Port"];
+            if (!col.Items.Contains(v)) col.Items.Add(v);
+            if (!cb.Items.Contains(v))  cb.Items.Add(v);  // must also add to editing control so DataGridView commits the value
+            cb.Text = v;
         }
 
         // ── TAB: VESSEL IMAGE ─────────────────────────────────────────────────
@@ -642,8 +730,9 @@ namespace HelideckVer2
             UpdateThemeButtons();
 
             dgvComConfig.Rows.Clear();
+            RefreshPortList();
             foreach (var t in Tasks)
-                dgvComConfig.Rows.Add(t.TaskName, t.PortName, t.BaudRate);
+                dgvComConfig.Rows.Add(t.TaskName, t.PortName ?? "", t.BaudRate);
         }
 
         private void BtnSave_Click(object sender, EventArgs e)
@@ -654,12 +743,31 @@ namespace HelideckVer2
             SystemConfig.HMax = (double)numHeave.Value;
             SystemConfig.IsLightTheme = _pendingIsLight;
 
+            dgvComConfig.EndEdit();
             foreach (DataGridViewRow row in dgvComConfig.Rows)
             {
                 string taskName = row.Cells["Task"].Value?.ToString();
                 var task = Tasks.Find(t => t.TaskName == taskName);
                 if (task == null) continue;
-                task.PortName = row.Cells["Port"].Value?.ToString() ?? task.PortName;
+                string port = row.Cells["Port"].Value?.ToString()?.Trim() ?? "";
+                if (!string.IsNullOrEmpty(port))
+                    task.PortName = port.ToUpperInvariant();
+            }
+
+            // Warn on duplicate COM port assignments
+            var dupes = Tasks
+                .Where(t => !string.IsNullOrEmpty(t.PortName))
+                .GroupBy(t => t.PortName, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1)
+                .Select(g => $"{g.Key} ({string.Join(", ", g.Select(t => t.TaskName))})")
+                .ToList();
+            if (dupes.Any())
+            {
+                string msg = "The following COM port(s) are assigned to multiple tasks:\n\n"
+                           + string.Join("\n", dupes)
+                           + "\n\nThis will cause communication errors. Please correct before saving.";
+                MessageBox.Show(msg, "Duplicate COM Port", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
 
             // Save selected vessel image → Images/picture1.png, then notify live
