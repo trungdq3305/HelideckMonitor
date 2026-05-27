@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using HelideckVer2.UI.Theme;
@@ -10,19 +11,15 @@ namespace HelideckVer2
         private DataGridView _dgvRaw;
         private System.Windows.Forms.Timer _updateTimer;
 
-        private static readonly string[] _expectedHeaders = {
-            "$GPGGA / $GPVTG",
-            "$WIMWV",
-            "$CNTB",
-            "$HEHDT",
-            "MODBUS-RTU  FC03  Slave1"
-        };
-        private static readonly string[] _dataDesc = {
-            "GPS Position & Speed Over Ground",
-            "Wind Speed and Angle",
-            "Roll / Pitch / Heave",
-            "Heading, True",
-            "Meteorological: Temp / Humidity / Pressure"
+        // HubKey: key dùng để tra cứu trong HelideckDataHub (khác TaskName nếu service dùng key riêng)
+        private static readonly Dictionary<string, (string Desc, string Expected, string HubKey)> _taskMeta =
+            new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["GPS"]     = ("GPS Position & Speed Over Ground",           "$GPGGA / $GPVTG",        "GPS"),
+            ["WIND"]    = ("Wind Speed and Angle",                       "$WIMWV",                  "WIND"),
+            ["MRU"]     = ("Roll / Pitch / Heave",                       "XBus MTData2  (binary)",  "R/P/H"),
+            ["HEADING"] = ("Heading, True",                              "$HEHDT",                  "HEADING"),
+            ["METEO"]   = ("Meteorological: Temp / Humidity / Pressure", "MODBUS-RTU  FC03  Slave1","METEO"),
         };
 
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
@@ -77,7 +74,7 @@ namespace HelideckVer2
 
             var lblSubtitle = new Label
             {
-                Text      = "Live NMEA input monitor  ·  refreshes every 500 ms  ·  Age > 2 s = LOST",
+                Text      = "Live data monitor  ·  refreshes every 500 ms  ·  Age > 2 s = LOST",
                 AutoSize  = false,
                 Dock      = DockStyle.Bottom,
                 Height    = 20,
@@ -171,16 +168,17 @@ namespace HelideckVer2
 
             // ── ROWS ──────────────────────────────────────────────────────────────
             var tasks = ConfigForm.Tasks;
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < tasks.Count; i++)
             {
-                string port = i < tasks.Count ? tasks[i].PortName : $"COM{i + 1}";
-                string task = i < tasks.Count ? tasks[i].TaskName : "-";
-                int    baud = i < tasks.Count ? tasks[i].BaudRate : 0;
-                string desc = i < _dataDesc.Length ? _dataDesc[i] : "";
+                var t = tasks[i];
+                _taskMeta.TryGetValue(t.TaskName, out var meta);
                 _dgvRaw.Rows.Add(
-                    i + 1, port, task, desc,
-                    baud > 0 ? baud.ToString() : "-",
-                    _expectedHeaders[i],
+                    i + 1,
+                    t.PortName ?? "-",
+                    t.TaskName,
+                    meta.Desc ?? t.TaskName,
+                    t.BaudRate > 0 ? t.BaudRate.ToString() : "-",
+                    meta.Expected ?? "-",
                     "", "", "WAIT"
                 );
             }
@@ -231,7 +229,10 @@ namespace HelideckVer2
                 _dgvRaw.Rows[i].Cells["COM"].Value  = portName;
                 _dgvRaw.Rows[i].Cells["Baud"].Value = baud > 0 ? baud.ToString() : "-";
 
-                var rowData = snap.TaskRows.Find(r => r.TaskName == taskName);
+                // MRU stores data under "R/P/H" in DataHub, not under "MRU"
+                _taskMeta.TryGetValue(taskName, out var meta);
+                string hubKey = string.IsNullOrEmpty(meta.HubKey) ? taskName : meta.HubKey;
+                var rowData = snap.TaskRows.Find(r => r.TaskName == hubKey);
                 if (rowData == null) continue;
 
                 string raw = rowData.Value ?? "";

@@ -517,7 +517,7 @@ namespace HelideckVer2
                 BackColor = Palette.InputBg,
                 ForeColor = Palette.TextValue
             };
-            _cboTimeRange.Items.AddRange(new object[] { "Last 1 hour", "Last 6 hours", "Last 24 hours", "Last 7 days" });
+            _cboTimeRange.Items.AddRange(new object[] { "Last 1 hour", "Last 6 hours", "Last 24 hours", "Last 7 days", "Last 30 days" });
             _cboTimeRange.SelectedIndex = 2;
 
             var btnRefresh = MakeToolbarButton("⟳  Refresh", Palette.BtnPrimaryBg, Palette.BtnPrimaryFg, 130, 9, 100);
@@ -592,6 +592,7 @@ namespace HelideckVer2
                 1 => 6.0,
                 2 => 24.0,
                 3 => 168.0,
+                4 => 720.0,
                 _ => 24.0
             };
             DateTime cutoff = DateTime.Now.AddHours(-hoursBack);
