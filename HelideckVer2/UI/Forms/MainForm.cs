@@ -128,8 +128,12 @@ namespace HelideckVer2
 
             this.FormClosed += (s, e) =>
             {
-                // Capture references rồi cleanup trên background thread
-                // tránh SerialPort.Close() block UI thread khi có pending read
+                // GoToConfig must be sent SYNCHRONOUSLY here on the UI thread.
+                // Task.Run is a background thread — process can exit before it completes,
+                // so GoToConfig would never reach the device.
+                _mruService?.SendGoToConfig();
+
+                // SerialPort.Close() can block — run the rest on a background thread
                 var sim = _simEngine; var mru = _mruService;
                 var meteo = _meteoService; var com = _comEngine;
                 var log = _logger;

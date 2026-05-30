@@ -78,6 +78,32 @@ namespace HelideckVer2.Services
             _simTimer = null;
         }
 
+        /// <summary>
+        /// Stops the ReadLoop then sends GoToConfig so the device returns to Config mode.
+        /// Must be called synchronously (UI thread) in FormClosed before async cleanup starts.
+        /// ReadLoop is stopped first to prevent it from re-sending GoToMeasurement after GoToConfig.
+        /// </summary>
+        public void SendGoToConfig()
+        {
+            if (SystemConfig.IsSimulationMode) return;
+
+            // Stop ReadLoop first — prevents race where ReadLoop re-enters ProcessPort
+            // and sends GoToMeasurement right after we send GoToConfig
+            _running = false;
+            _readThread?.Join(1500);  // wait up to 1.5s for ReadLoop to exit cleanly
+
+            try
+            {
+                SerialPort port = _comEngine?.GetManagedPort(_portName);
+                if (port != null && port.IsOpen)
+                {
+                    port.Write([0xFA, 0xFF, 0x30, 0x00, 0xD1], 0, 5); // GoToConfig
+                    Thread.Sleep(100);  // give device time to switch to Config mode
+                }
+            }
+            catch { }
+        }
+
         public void Dispose() => Stop();
 
         // ── SIMULATION ───────────────────────────────────────────────────────
@@ -131,8 +157,25 @@ namespace HelideckVer2.Services
             }
         }
 
+        private static void TrySend(SerialPort port, byte[] frame)
+        {
+            try { port.Write(frame, 0, frame.Length); } catch { }
+        }
+
+        private static void InitDevice(SerialPort port)
+        {
+            // GoToMeasurement — device already has correct output config stored in flash (set via MT Manager).
+            // FA FF 10 00 F1
+            TrySend(port, [0xFA, 0xFF, 0x10, 0x00, 0xF1]);
+            Thread.Sleep(200);
+
+            try { port.DiscardInBuffer(); } catch { }
+        }
+
         private void ProcessPort(SerialPort port)
         {
+            InitDevice(port);
+
             // Đồng bộ frame: tìm preamble FA
             while (_running)
             {
@@ -164,6 +207,10 @@ namespace HelideckVer2.Services
                     len    = lenByte;
                     lenSum = lenByte;
                 }
+
+                // Guard: max XBus MTData2 frame is ~512 bytes at 100Hz with all data items.
+                // A larger value means corrupted sync — re-scan for next preamble.
+                if (len > 512) continue;
 
                 // Đọc DATA
                 byte[] data = ReadExact(port, len);
@@ -222,7 +269,7 @@ namespace HelideckVer2.Services
                         _hasFreeAcc = true;
                         break;
 
-                    case IdRoT when itemLen >= 12:
+                    case ushort rotId when (rotId & 0xFFF0) == (IdRoT & 0xFFF0) && itemLen >= 12:
                         _wx = ParseFloat(data, pos);
                         _wy = ParseFloat(data, pos + 4);
                         _wz = ParseFloat(data, pos + 8);
