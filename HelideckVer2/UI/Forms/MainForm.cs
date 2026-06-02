@@ -717,7 +717,7 @@ namespace HelideckVer2
                 if (_lastZeroCrossTime.HasValue)
                 {
                     double sec = (now - _lastZeroCrossTime.Value).TotalSeconds;
-                    if (sec >= 2.0 && sec <= 30.0)
+                    if (sec >= 1.0 && sec <= 60.0)
                         HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateHeavePeriod(sec);
                 }
                 _lastZeroCrossTime = now;
