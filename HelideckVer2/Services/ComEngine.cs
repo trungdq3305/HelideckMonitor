@@ -41,7 +41,10 @@ namespace HelideckVer2.Services
         public void Initialize(List<DeviceTask> tasks)
         {
             _currentTasks = tasks;
-            _watchdogTimer = new System.Threading.Timer(WatchdogCheck, null, 1000, 5000);
+            // dueTime=0 → watchdog fires immediately on a threadpool thread (not UI thread),
+            // opening ports right away so hot-reload feels instant.
+            // period=5000 → subsequent retries every 5s.
+            _watchdogTimer = new System.Threading.Timer(WatchdogCheck, null, 0, 5000);
             SystemLogger.LogInfo("ComEngine initialized.");
         }
 
@@ -79,14 +82,16 @@ namespace HelideckVer2.Services
                         if (isTimeout)
                             try { _managedPorts[task.PortName].Close(); } catch { }
 
-                        // Log một lần khi bắt đầu offline — không log lại cho đến khi recover
-                        bool alreadyOffline = _isOffline.TryGetValue(task.PortName, out bool o) && o;
-                        if (!alreadyOffline)
+                        // Log một lần khi bắt đầu offline — chỉ khi port đã từng mở thành công
+                        // (tránh spam log cho các port chưa bao giờ kết nối)
+                        bool alreadyOffline  = _isOffline.TryGetValue(task.PortName, out bool o) && o;
+                        bool wasEverOpen     = _everOpened.TryGetValue(task.PortName, out bool ev) && ev;
+                        if (!alreadyOffline && (wasEverOpen || isTimeout))
                         {
                             string reason = isTimeout ? "no data received" : "port unavailable";
                             SystemLogger.LogInfo($"[COM] {task.PortName} ({task.TaskName}) offline – {reason}.");
-                            _isOffline[task.PortName] = true;
                         }
+                        _isOffline[task.PortName] = true;
 
                         // Tính backoff cho lần retry tiếp theo
                         int count = _retryCount.TryGetValue(task.PortName, out int rc) ? rc : 0;

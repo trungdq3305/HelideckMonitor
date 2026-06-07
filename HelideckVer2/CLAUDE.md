@@ -58,7 +58,7 @@ COM Ports (COM1–COM6+)
 | `Services/SimulationEngine.cs` | Generates valid NMEA sentences with correct checksums at 100ms intervals |
 | `Services/MeteoService.cs` | Modbus RTU polling (RK330-01) via RS485/COM5 every 2s — temp, humidity, pressure. **Port lifecycle delegated to ComEngine** — MeteoService calls `_comEngine.GetManagedPort("COM5")` each poll; if null (port not yet open) poll silently skips. Simulation mode generates random values |
 | `Services/MruService.cs` | **Sole source of Roll/Pitch/Heave.** Background thread reads `FA FF 36` frames from COM port, parses MTData2 (Euler 0x2030, FreeAcc 0x4030, RoT 0x8020), runs `XsensMruProcessor`, writes Roll/Pitch/Heave(cm) to DataHub slot "R/P/H". Simulation mode generates random drift via `System.Timers.Timer`. Always started (task "MRU" always present in config, default port COM3). **Port lifecycle delegated to ComEngine** via `GetManagedPort()`. |
-| `Services/Mru/XsensMruProcessor.cs` | Algorithm: double-integration of vertical acceleration for heave (low-pass + high-pass filters), rotation matrix body→earth, heave offset at bow/stern/sensor positions. Classes: `Vec3`, `LowPassFilter`, `HighPassFilter`, `MruOutput`, `XsensMruProcessor` |
+| `Services/Mru/XsensMruProcessor.cs` | Algorithm: double-integration of vertical acceleration for heave (2-state Kalman filter + ZUPT), rotation matrix body→earth, heave offset at bow/stern/sensor positions. Classes: `Vec3`, `HeaveKalmanFilter`, `MruOutput`, `XsensMruProcessor`. (`LowPassFilter`/`HighPassFilter` still present in file but no longer used for heave.) |
 | `Services/ConfigService.cs` | Loads `config.json` at startup, applies to `SystemConfig` |
 | `Services/SystemLogger.cs` | Static logger, thread-safe via `lock (_lockObj)` |
 | **Core/** | |
@@ -212,7 +212,7 @@ When enabled, `SimulationEngine` generates valid NMEA sentences with correct che
 | Registers | 0x0000, count 3 |
 | CRC | CRC-16/IBM (0xA001), low byte first |
 | Request | `01 03 00 00 00 03 05 CB` |
-| Decode | reg[0]/100 → °C, reg[1]/100 → %, reg[2]/10 → mbar |
+| Decode | reg[0]/10 → °C, reg[1]/10 → %, reg[2]/10 → mbar |
 | Poll interval | 2s |
 | ReadTimeout | 600ms, WriteTimeout 300ms (set by ComEngine on port open) |
 
@@ -220,7 +220,7 @@ When enabled, `SimulationEngine` generates valid NMEA sentences with correct che
 
 **Constructor**: `new MeteoService(portName, baudRate, _comEngine)` — pass the running ComEngine instance.
 
-Data flows: `MeteoService.Poll()` → `HelideckDataHub.UpdateMeteoData()` → `_uiUpdateTimer` reads via `GetSnapshot()` → `_lblTemp` / `_lblHumidity` + `TrendChartControl.PushEnvData()`.
+Data flows: `MeteoService.Poll()` → `HelideckDataHub.UpdateMeteoData()` → `_uiUpdateTimer` reads via `GetSnapshot()` → `_lblTemp` / `_lblHumidity` / `_lblPressure` + `TrendChartControl.PushEnvData()`.
 
 ## MruService — Xsens MTi XBus Binary
 
@@ -293,7 +293,7 @@ Edit `SystemConfig` static properties or update `config.json` — limits are `Fu
 |-------|-----|
 | COM port fails to open | Check COM port assignments in `config.json` + Windows Device Manager |
 | Data shows LOST after 2s | Trace checksum failures in `NmeaParserService` (5-fail freeze threshold) |
-| Incorrect heave values | Verify `HeaveArm` config value + `HeaveArm × sin(pitch)` formula |
+| Incorrect heave values | Tune `HeaveKalmanFilter` params in `XsensMruProcessor.cs`: `AccThreshold` (ngưỡng detect đứng yên), `RZupt` (tốc độ về 0 — nhỏ = nhanh hơn), `QPos`/`QVel` (process noise) |
 | Crash on startup | Check `Logs/` folder permissions; review 30-day auto-delete logic |
 | Chart jitter on mouse hover | Do NOT re-enable `CursorX.IsUserEnabled` — cursor must stay in PostPaint |
 | Theme not updating a control | Check if it uses `CardPanel` + `Color.Transparent` labels; avoid captured color variables |

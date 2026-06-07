@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Application = System.Windows.Forms.Application;
 using Font = System.Drawing.Font;
@@ -36,6 +37,7 @@ namespace HelideckVer2
         private Tag _windTag, _rollTag, _pitchTag, _heaveTag;
         private Label lblAlarmStatus;
         private Label _lblClock;
+        private Label _lblProjectTitle;
         private FlowLayoutPanel _topMenu;
 
         private const double BufferMinutes    = 20;
@@ -57,8 +59,8 @@ namespace HelideckVer2
         private double _heaveArm    = 10.0;
 
         private Label lblStatGPS, lblStatWind, lblStatMotion, lblStatHeading, lblStatMeteo;
-        private Label _lblTemp, _lblHumidity;
-        private Label[] _unitLabels = new Label[11];
+        private Label _lblTemp, _lblHumidity, _lblPressure;
+        private Label[] _unitLabels = new Label[12];
 
         private HelideckVer2.UI.Controls.TrendChartControl _trendControl;
 
@@ -126,24 +128,35 @@ namespace HelideckVer2
             _comEngine = new ComEngine();
             _comEngine.OnDataReceived += OnComDataReceived;
 
-            this.FormClosed += (s, e) =>
+            this.FormClosing += (s, e) =>
             {
-                // GoToConfig must be sent SYNCHRONOUSLY here on the UI thread.
-                // Task.Run is a background thread — process can exit before it completes,
-                // so GoToConfig would never reach the device.
-                _mruService?.SendGoToConfig();
+                e.Cancel = true;       // prevent framework close; we exit via Environment.Exit
+                this.Visible = false;  // hide immediately — user sees app disappear at once
 
-                // SerialPort.Close() can block — run the rest on a background thread
-                var sim = _simEngine; var mru = _mruService;
-                var meteo = _meteoService; var com = _comEngine;
-                var log = _logger;
-                System.Threading.Tasks.Task.Run(() =>
+                // Stop UI timers so no more ticks fire during cleanup
+                _uiUpdateTimer?.Stop();
+                _snapshotTimer?.Stop();
+                _healthTimer?.Stop();
+                _chartUpdateTimer?.Stop();
+
+                var mru   = _mruService;
+                var sim   = _simEngine;
+                var meteo = _meteoService;
+                var com   = _comEngine;
+                var log   = _logger;
+
+                // Safety: force-exit after 4s if any cleanup step hangs
+                Task.Delay(4000).ContinueWith(_ => Environment.Exit(0));
+
+                Task.Run(() =>
                 {
+                    try { mru?.SendGoToConfig(); } catch { }  // joins read thread (max 1.5s)
                     try { sim?.Stop();    } catch { }
                     try { mru?.Stop();    } catch { }
                     try { meteo?.Stop();  } catch { }
                     try { com?.Dispose(); } catch { }
-                    try { log?.Dispose(); } catch { }  // flush remaining log data before exit
+                    try { log?.Dispose(); } catch { }  // flush remaining log data
+                    Environment.Exit(0);
                 });
             };
 
@@ -355,9 +368,9 @@ namespace HelideckVer2
         private void SetupRightPanelTitle()
         {
             string shipName = SystemConfig.ShipName ?? "HELIDECK MONITOR";
-            var lblTitle = new Label
+            _lblProjectTitle = new Label
             {
-                Text      = $"  PROJECT:  {shipName}",
+                Text      = $"  {shipName}",
                 Dock      = DockStyle.Top,
                 Height    = 30,
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -367,13 +380,13 @@ namespace HelideckVer2
                 Padding   = new Padding(8, 0, 0, 0)
             };
 
-            // Ảnh vessel 38%, radar 62%
+            // Ảnh vessel 50%, radar 50%
             tableLayoutPanel4.ColumnStyles.Clear();
-            tableLayoutPanel4.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38F));
-            tableLayoutPanel4.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62F));
+            tableLayoutPanel4.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            tableLayoutPanel4.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
 
-            tableLayoutPanel4.Controls.Add(lblTitle, 0, 0);
-            tableLayoutPanel4.SetColumnSpan(lblTitle, 2);
+            tableLayoutPanel4.Controls.Add(_lblProjectTitle, 0, 0);
+            tableLayoutPanel4.SetColumnSpan(_lblProjectTitle, 2);
 
             // Dịch pictureBox1 và pictureBox2 xuống row 1
             tableLayoutPanel4.RowCount = 2;
@@ -403,36 +416,38 @@ namespace HelideckVer2
             tableLayoutPanel2.ColumnCount = 2;
             tableLayoutPanel2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             tableLayoutPanel2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            tableLayoutPanel2.RowCount = 6;
-            for (int i = 0; i < 6; i++)
-                tableLayoutPanel2.RowStyles.Add(new RowStyle(SizeType.Percent, 100F / 6));
+            tableLayoutPanel2.RowCount = 7;
+            for (int i = 0; i < 7; i++)
+                tableLayoutPanel2.RowStyles.Add(new RowStyle(SizeType.Percent, 100F / 7));
 
             // Nhãn và giá trị
-            // items[0]=POSITION(full-width), [1-8]=SPEED..WIND DIR, [9-10]=TEMP,HUMIDITY (METEO COM5)
+            // items[0]=POSITION(full-width), [1-8]=SPEED..WIND DIR, [9-10]=TEMP,HUMIDITY, [11]=PRESSURE (METEO COM5)
             var lblTitleTemp     = new Label();
             var lblTitleHumidity = new Label();
+            var lblTitlePressure = new Label();
             _lblTemp     = new Label();
             _lblHumidity = new Label();
+            _lblPressure = new Label();
 
-            Label[] titles = { label1, label2, label3, label4, label5, label6, label7, label8, label9, lblTitleTemp, lblTitleHumidity };
+            Label[] titles = { label1, label2, label3, label4, label5, label6, label7, label8, label9, lblTitleTemp, lblTitleHumidity, lblTitlePressure };
             string[] headers = {
                 "POSITION", "SPEED", "HEADING",
                 "ROLL", "PITCH", "HEAVE",
                 "H.PERIOD", "WIND SPD", "WIND DIR",
-                "TEMP", "HUMIDITY"
+                "TEMP", "HUMIDITY", "PRESSURE"
             };
             Label[] values = {
                 lblPosition, lblSpeed, lblHeading,
                 lblRoll, lblPitch, lblHeave,
                 lblHeaveCycle, lblWindSpeed, lblWindRelated,
-                _lblTemp, _lblHumidity
+                _lblTemp, _lblHumidity, _lblPressure
             };
             // Đơn vị hiển thị riêng ở label nhỏ bên dưới – không nhúng vào text số
-            string[] unitTexts = { "", "kn", "°", "°", "°", "cm", "s", "m/s", "°", "°C", "%" };
+            string[] unitTexts = { "", "kn", "°", "°", "°", "cm", "s", "m/s", "°", "°C", "%", "hPa" };
 
             Color titleFg = Palette.TextLabel;
 
-            for (int i = 0; i < 11; i++)
+            for (int i = 0; i < 12; i++)
             {
                 if (titles[i] == null || values[i] == null) continue;
 
@@ -447,13 +462,14 @@ namespace HelideckVer2
                 values[i].AutoSize  = false;
                 values[i].Dock      = DockStyle.Fill;
                 values[i].TextAlign = ContentAlignment.MiddleCenter;
-                values[i].Padding   = new Padding(0, 0, 0, 4);
+                values[i].Padding   = new Padding(0);
                 values[i].BackColor = Color.Transparent;
                 values[i].ForeColor = Palette.OkFg;
 
-                if (i == 0)  values[i].ForeColor = Palette.TextGps;       // POSITION
-                if (i == 9)  values[i].ForeColor = Palette.SeriesRoll;   // TEMP
-                if (i == 10) values[i].ForeColor = Palette.SeriesWSpeed; // HUMIDITY
+                if (i == 0)  values[i].ForeColor = Palette.TextGps;        // POSITION
+                if (i == 9)  values[i].ForeColor = Palette.SeriesRoll;    // TEMP
+                if (i == 10) values[i].ForeColor = Palette.SeriesWSpeed;  // HUMIDITY
+                if (i == 11) values[i].ForeColor = Palette.SeriesHeave;   // PRESSURE
 
                 if (i == 7) values[i].Click += lblWindSpeed_Click;
                 if (i == 3) values[i].Click += lblRoll_Click;
@@ -482,37 +498,38 @@ namespace HelideckVer2
                 {
                     if (card.Height <= 0 || card.Width <= 0) return;
 
-                    int titleH = Math.Max(20, (int)(card.Height * 0.28f));
+                    // Min nhỏ hơn để card nhỏ vẫn có chỗ cho số
+                    int titleH = Math.Max(12, (int)(card.Height * 0.25f));
                     titles[idx].Height = titleH;
 
                     int unitH = 0;
                     if (_unitLabels[idx] != null && !string.IsNullOrEmpty(_unitLabels[idx].Text))
                     {
-                        unitH = Math.Max(22, (int)(card.Height * 0.22f));
+                        unitH = Math.Max(14, (int)(card.Height * 0.20f));
                         _unitLabels[idx].Height = unitH;
-                        float uf = Math.Max(10f, Math.Min(card.Height * 0.13f, 16f));
+                        float uf = Math.Max(7f, Math.Min(card.Height * 0.12f, 14f));
                         SafeSetFont(_unitLabels[idx], uf);
                     }
 
-                    float tf = Math.Max(8f, Math.Min(Math.Min(card.Height * 0.10f, card.Width * 0.08f), 18f));
+                    float tf = Math.Max(7f, Math.Min(Math.Min(card.Height * 0.10f, card.Width * 0.08f), 18f));
                     SafeSetFont(titles[idx], tf);
 
-                    // Tính fillH thực tế (không dùng hệ số card.Height cố định vì min-constraints ăn mất chỗ)
+                    // fillH = phần còn lại dành cho số — phải đủ để font không bị clip
                     int fillH = Math.Max(1, card.Height - titleH - unitH);
 
                     float vf;
                     if (idx == 0)
                     {
-                        vf = Math.Max(8f, Math.Min(Math.Min(card.Height * 0.14f, card.Width * 0.055f), 20f));
+                        vf = Math.Max(7f, Math.Min(Math.Min(card.Height * 0.14f, card.Width * 0.055f), 20f));
                     }
                     else
                     {
                         // pt → px: pt * DpiX/72 * lineSpacingRatio(≈1.21 Segoe UI)
                         // Đảo ngược: safe_pt = fillH / (DpiX/72 * 1.21) * 0.82 (safety margin)
-                        float dpiScale  = Math.Max(96f, card.DeviceDpi) / 96f;
-                        float maxByFill = fillH * 0.53f / dpiScale;
-                        float maxByWidth = card.Width * 0.20f;
-                        vf = Math.Max(10f, Math.Min(Math.Min(maxByFill, maxByWidth), 36f));
+                        float dpiScale   = Math.Max(96f, card.DeviceDpi) / 96f;
+                        float maxByFill  = fillH * 0.53f / dpiScale;
+                        float maxByWidth = card.Width * 0.22f;
+                        vf = Math.Max(7f, Math.Min(Math.Min(maxByFill, maxByWidth), 36f));
                     }
                     SafeSetFont(values[idx], vf);
                 };
@@ -538,6 +555,11 @@ namespace HelideckVer2
                 if (i == 0)
                 {
                     tableLayoutPanel2.Controls.Add(card, 0, 0);
+                    tableLayoutPanel2.SetColumnSpan(card, 2);
+                }
+                else if (i == 11)
+                {
+                    tableLayoutPanel2.Controls.Add(card, 0, 6);
                     tableLayoutPanel2.SetColumnSpan(card, 2);
                 }
                 else
@@ -698,12 +720,13 @@ namespace HelideckVer2
                 : "---";
 
             // 5. METEO labels + ENV chart
+            // Use 6s freshness window (poll=2s, Modbus timeout=600ms) to prevent flicker
+            // when a poll is slow and Age briefly crosses the 2s IsStale threshold.
             var meteoRow = snap.TaskRows.Find(r => r.TaskName == "METEO");
-            bool meteoFresh = meteoRow != null && meteoRow.Age < 900 && !meteoRow.IsStale;
-            if (_lblTemp != null)
-                _lblTemp.Text     = meteoFresh ? $"{snap.TempCelsius:0.0}" : "---";
-            if (_lblHumidity != null)
-                _lblHumidity.Text = meteoFresh ? $"{snap.HumidityPct:0.0}"  : "---";
+            bool meteoFresh = meteoRow != null && meteoRow.Age < 6.0;
+            SetLabelText(_lblTemp,     meteoFresh ? $"{snap.TempCelsius:0.00}" : "---");
+            SetLabelText(_lblHumidity, meteoFresh ? $"{snap.HumidityPct:0.00}"  : "---");
+            SetLabelText(_lblPressure, meteoFresh ? $"{snap.PressureHPa:0.0}"  : "---");
             if (meteoFresh)
                 _trendControl.PushEnvData(snap.TempCelsius, snap.HumidityPct);
 
@@ -732,6 +755,7 @@ namespace HelideckVer2
                 snap.GpsSpeedKnot, snap.Heading,
                 snap.RollDeg, snap.PitchDeg, snap.HeaveCm,
                 snap.HeavePeriodSec, snap.WindSpeedMs, snap.WindDirDeg,
+                snap.TempCelsius, snap.HumidityPct, snap.PressureHPa,
                 snap.GpsLat, snap.GpsLon);
         }
 
@@ -844,8 +868,14 @@ namespace HelideckVer2
             Button btnZoom = CreateMenuButton("VIEW: 2 Min", Palette.BtnActiveBg, Palette.BtnActiveFg);
             btnZoom.Click += (s, e) =>
             {
-                _currentViewMinutes = _currentViewMinutes == 2.0 ? 20.0 : 2.0;
-                btnZoom.Text = $"VIEW: {_currentViewMinutes:0} Min";
+                // Cycle: 30s → 2 min → 20 min → 30s
+                if      (_currentViewMinutes <= 0.5) _currentViewMinutes = 2.0;
+                else if (_currentViewMinutes <= 2.0) _currentViewMinutes = 20.0;
+                else                                  _currentViewMinutes = 0.5;
+
+                btnZoom.Text = _currentViewMinutes < 1.0
+                    ? $"VIEW: {(int)(_currentViewMinutes * 60)}s"
+                    : $"VIEW: {_currentViewMinutes:0} Min";
                 _trendControl.SetViewWindow(_currentViewMinutes);
             };
 
@@ -906,6 +936,11 @@ namespace HelideckVer2
             if (age > 900)   { lbl.Text = $"{name}: WAIT"; lbl.BackColor = Palette.WaitBg; lbl.ForeColor = Palette.WaitFg; }
             else if (isStale){ lbl.Text = $"{name}: LOST"; lbl.BackColor = Palette.LostBg; lbl.ForeColor = Palette.LostFg; }
             else             { lbl.Text = $"{name}: OK";   lbl.BackColor = Palette.OkBg;   lbl.ForeColor = Palette.OkFg; }
+        }
+
+        private static void SetLabelText(Label lbl, string text)
+        {
+            if (lbl != null && lbl.Text != text) lbl.Text = text;
         }
 
         private void UpdateLabelStatus(Label lbl, bool isAlive)
@@ -1045,9 +1080,49 @@ namespace HelideckVer2
         {
             if (new LoginForm().ShowDialog() == DialogResult.OK)
             {
-                new ConfigForm().ShowDialog();
+                var result = new ConfigForm().ShowDialog();
                 SystemConfig.Apply(ConfigService.Load());
+                if (result == DialogResult.OK)
+                {
+                    _lblProjectTitle.Text = $"  {SystemConfig.ShipName ?? "HELIDECK MONITOR"}";
+                    RestartDataPipeline();
+                }
             }
+        }
+
+        private void RestartDataPipeline()
+        {
+            var oldSim   = _simEngine;
+            var oldMru   = _mruService;
+            var oldMeteo = _meteoService;
+            var oldCom   = _comEngine;
+
+            _simEngine    = null;
+            _mruService   = null;
+            _meteoService = null;
+            _comEngine    = null;
+
+            // WinForms timer — dừng trên UI thread trước
+            try { oldSim?.Stop(); } catch { }
+
+            // SerialPort.Close / thread join có thể block → background thread
+            Task.Run(() =>
+            {
+                try { oldMru?.SendGoToConfig(); } catch { }  // sets _running=false, joins thread (max 1.5s)
+                try { oldMru?.Stop();           } catch { }
+                try { oldMeteo?.Stop();         } catch { }
+                try { oldCom?.Dispose();        } catch { }
+            }).ContinueWith(_ =>
+            {
+                Invoke(new Action(() =>
+                {
+                    InitializeTasks();
+                    _nmeaParser.SetPortTasks(ConfigForm.Tasks);
+                    _comEngine = new ComEngine();
+                    _comEngine.OnDataReceived += OnComDataReceived;
+                    StartDataPipeline();
+                }));
+            });
         }
 
         // Stubs giữ tương thích Designer

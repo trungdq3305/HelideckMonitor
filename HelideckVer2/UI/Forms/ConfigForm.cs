@@ -18,6 +18,7 @@ namespace HelideckVer2
     {
         // ── Alarm Limits tab ─────────────────────────────────────────────────
         private NumericUpDown numWind, numRoll, numPitch, numHeave;
+        private TextBox _txtShipName;
 
         // ── COM Config tab ───────────────────────────────────────────────────
         private DataGridView dgvComConfig;
@@ -238,9 +239,31 @@ namespace HelideckVer2
         private void SetupAlarmTab(Panel tab)
         {
             int y = 20;
-            numWind = AddAlarmRow(tab, "Wind Max (m/s):", ref y);
-            numRoll = AddAlarmRow(tab, "Roll Max (°):", ref y);
-            numPitch = AddAlarmRow(tab, "Pitch Max (°):", ref y);
+
+            // Ship name row
+            var lblShip = new Label
+            {
+                Text      = "Project Title:",
+                Top       = y, Left = 30, AutoSize = true,
+                Font      = new Font("Segoe UI", 10),
+                ForeColor = Palette.TextLabel,
+                BackColor = Color.Transparent
+            };
+            _txtShipName = new TextBox
+            {
+                Top       = y - 2, Left = 220, Width = 220,
+                Font      = new Font("Segoe UI", 10),
+                BackColor = Palette.InputBg,
+                ForeColor = Palette.TextValue,
+                MaxLength = 60
+            };
+            tab.Controls.Add(lblShip);
+            tab.Controls.Add(_txtShipName);
+            y += 55;
+
+            numWind  = AddAlarmRow(tab, "Wind Max (m/s):", ref y);
+            numRoll  = AddAlarmRow(tab, "Roll Max (°):",   ref y);
+            numPitch = AddAlarmRow(tab, "Pitch Max (°):",  ref y);
             numHeave = AddAlarmRow(tab, "Heave Max (cm):", ref y);
         }
 
@@ -722,8 +745,9 @@ namespace HelideckVer2
 
         private void LoadData()
         {
-            numWind.Value = (decimal)SystemConfig.WindMax;
-            numRoll.Value = (decimal)SystemConfig.RMax;
+            _txtShipName.Text = SystemConfig.ShipName ?? "";
+            numWind.Value  = (decimal)SystemConfig.WindMax;
+            numRoll.Value  = (decimal)SystemConfig.RMax;
             numPitch.Value = (decimal)SystemConfig.PMax;
             numHeave.Value = (decimal)SystemConfig.HMax;
             _originalTheme  = SystemConfig.IsLightTheme;
@@ -738,10 +762,13 @@ namespace HelideckVer2
 
         private void BtnSave_Click(object sender, EventArgs e)
         {
-            SystemConfig.WindMax = (double)numWind.Value;
-            SystemConfig.RMax = (double)numRoll.Value;
-            SystemConfig.PMax = (double)numPitch.Value;
-            SystemConfig.HMax = (double)numHeave.Value;
+            string shipName = _txtShipName.Text.Trim();
+            if (!string.IsNullOrEmpty(shipName))
+                SystemConfig.ShipName = shipName;
+            SystemConfig.WindMax      = (double)numWind.Value;
+            SystemConfig.RMax         = (double)numRoll.Value;
+            SystemConfig.PMax         = (double)numPitch.Value;
+            SystemConfig.HMax         = (double)numHeave.Value;
             SystemConfig.IsLightTheme = _pendingIsLight;
 
             dgvComConfig.EndEdit();
@@ -795,7 +822,7 @@ namespace HelideckVer2
             HelideckVer2.Services.ConfigService.Save(saveCfg);
 
             MessageBox.Show(
-                "Configuration saved!\n\nPlease restart the application to apply COM port / Baud rate changes.",
+                "Configuration saved! COM ports will reconnect automatically.",
                 "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             this.DialogResult = DialogResult.OK;

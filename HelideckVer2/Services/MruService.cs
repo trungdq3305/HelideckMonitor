@@ -35,6 +35,11 @@ namespace HelideckVer2.Services
         private Thread _readThread;
         private volatile bool _running;
         private DateTime _lastFrameTime = DateTime.MinValue;
+        private bool _firstFrameLogged = false;
+
+        // Throttle counters — log on 1st, 5th, then every 30 occurrences
+        private int _checksumFailCount;
+        private int _timeoutFailCount;
 
         // Simulation
         private readonly Random _rng = new Random();
@@ -55,12 +60,14 @@ namespace HelideckVer2.Services
             _running = true;
             if (SystemConfig.IsSimulationMode)
             {
+                SystemLogger.LogInfo($"[MRU] Starting in SIMULATION mode.");
                 _simTimer = new System.Timers.Timer(100) { AutoReset = true };
                 _simTimer.Elapsed += (s, e) => SimulateTick();
                 _simTimer.Start();
             }
             else
             {
+                SystemLogger.LogInfo($"[MRU] Starting on port={_portName}.");
                 _readThread = new Thread(ReadLoop)
                 {
                     IsBackground = true,
@@ -129,32 +136,51 @@ namespace HelideckVer2.Services
 
             PublishOutput(out_);
             HelideckDataHub.Instance.UpdateRawString("R/P/H",
-                $"SIM MRU R={out_.RollDeg:0.00}° P={out_.PitchDeg:0.00}° H={out_.HeadingDeg:0.0}° Heave={out_.HeaveCg * 100:0.0}cm");
+                $"SIM MRU R={out_.RollDeg:0.00}° P={out_.PitchDeg:0.00}° H={out_.HeadingDeg:0.0}° Heave={out_.HeaveInstantCg * 100:0.0}cm");
         }
 
         // ── READ LOOP ─────────────────────────────────────────────────────────
 
         private void ReadLoop()
         {
+            bool portLoggedOnce = false;
             while (_running)
             {
                 SerialPort port = _comEngine?.GetManagedPort(_portName);
                 if (port == null || !port.IsOpen)
                 {
+                    portLoggedOnce    = false;
+                    _firstFrameLogged = false;
                     Thread.Sleep(500);
                     continue;
+                }
+
+                if (!portLoggedOnce)
+                {
+                    SystemLogger.LogInfo($"[MRU] Port {_portName} open — entering read loop.");
+                    portLoggedOnce = true;
                 }
 
                 try
                 {
                     ProcessPort(port);
                 }
-                catch (Exception)
+                catch (TimeoutException)
                 {
-                    // Port closed, disposed, or IO error — ComEngine watchdog will reopen
+                    // ReadByte times out when device stops sending — throttle to avoid 1-log-per-second spam
+                    _timeoutFailCount++;
+                    if (ShouldLogThrottled(_timeoutFailCount))
+                        SystemLogger.LogInfo($"[MRU] {_portName}: read timeout (no data) — count={_timeoutFailCount}. Check baud rate or device mode.");
+                    Thread.Sleep(200);
+                }
+                catch (Exception ex)
+                {
+                    _timeoutFailCount = 0;
+                    SystemLogger.LogInfo($"[MRU] ProcessPort exception on {_portName}: {ex.GetType().Name} — {ex.Message}");
                     Thread.Sleep(200);
                 }
             }
+            SystemLogger.LogInfo($"[MRU] ReadLoop exited.");
         }
 
         private static void TrySend(SerialPort port, byte[] frame)
@@ -166,6 +192,7 @@ namespace HelideckVer2.Services
         {
             // GoToMeasurement — device already has correct output config stored in flash (set via MT Manager).
             // FA FF 10 00 F1
+            SystemLogger.LogInfo($"[MRU] Sending GoToMeasurement on {port.PortName}.");
             TrySend(port, [0xFA, 0xFF, 0x10, 0x00, 0xF1]);
             Thread.Sleep(200);
 
@@ -222,7 +249,17 @@ namespace HelideckVer2.Services
                 int sum = Bid + MidMTData2 + lenSum;
                 foreach (byte d in data) sum += d;
                 sum += cs;
-                if ((sum & 0xFF) != 0) continue;  // checksum lỗi → bỏ frame
+                if ((sum & 0xFF) != 0)
+                {
+                    _checksumFailCount++;
+                    if (ShouldLogThrottled(_checksumFailCount))
+                        SystemLogger.LogInfo($"[MRU] {_portName}: checksum fail count={_checksumFailCount}. Check baud rate / cable / device output config.");
+                    continue;
+                }
+
+                // Valid frame received — reset error counters
+                _checksumFailCount = 0;
+                _timeoutFailCount  = 0;
 
                 // Parse và tính toán
                 ParseAndUpdate(data);
@@ -315,9 +352,15 @@ namespace HelideckVer2.Services
 
             if (!out_.Valid) return;
 
+            if (!_firstFrameLogged)
+            {
+                SystemLogger.LogInfo($"[MRU] First valid frame received on {_portName} — R={out_.RollDeg:0.00}° P={out_.PitchDeg:0.00}°");
+                _firstFrameLogged = true;
+            }
+
             PublishOutput(out_);
             HelideckDataHub.Instance.UpdateRawString("R/P/H",
-                $"MRU R={out_.RollDeg:0.00}° P={out_.PitchDeg:0.00}° H={out_.HeadingDeg:0.0}° Heave={out_.HeaveCg * 100:0.0}cm");
+                $"MRU R={out_.RollDeg:0.00}° P={out_.PitchDeg:0.00}° H={out_.HeadingDeg:0.0}° Heave={out_.HeaveInstantCg * 100:0.0}cm");
         }
 
         private void PublishOutput(MruOutput o)
@@ -327,10 +370,14 @@ namespace HelideckVer2.Services
             HelideckDataHub.Instance.UpdateNumericData("R/P/H",
                 Math.Abs(o.RollDeg),
                 Math.Abs(o.PitchDeg),
-                o.HeaveCg * 100.0);
+                o.HeaveInstantCg * 100.0);
         }
 
         // ── HELPERS ───────────────────────────────────────────────────────────
+
+        // Log on 1st occurrence, 5th, then every 30 — avoids spam while keeping signal visible
+        private static bool ShouldLogThrottled(int count) =>
+            count == 1 || count == 5 || count % 30 == 0;
 
         private static byte[] ReadExact(SerialPort port, int count)
         {

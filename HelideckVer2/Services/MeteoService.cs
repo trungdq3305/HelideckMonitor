@@ -19,6 +19,11 @@ namespace HelideckVer2.Services
 
         private System.Timers.Timer _timer;
 
+        // Throttle counters — log on 1st, 5th, then every 30 occurrences
+        private int  _pollExceptionCount;
+        private int  _badResponseCount;
+        private bool _firstPollLogged;
+
         // Simulation drift state
         private readonly Random _rng = new Random();
         private double _simTemp     = 25.0;
@@ -76,19 +81,36 @@ namespace HelideckVer2.Services
                 // Expected response: SlaveID(1) + FC(1) + ByteCount(1) + Data(6) + CRC(2) = 11 bytes
                 byte[] resp = ReadExact(port, 11);
                 if (!ValidateResponse(resp, slaveId: 1, fc: 0x03, dataBytes: 6))
+                {
+                    _badResponseCount++;
+                    if (ShouldLogThrottled(_badResponseCount))
+                        SystemLogger.LogInfo($"[METEO] {_portName}: invalid Modbus response count={_badResponseCount}. Check slave ID, wiring, RS-485 polarity.");
                     return;
+                }
 
-                double temp     = ((resp[3] << 8) | resp[4]) / 100.0;
-                double humidity = ((resp[5] << 8) | resp[6]) / 100.0;
+                double temp     = ((resp[3] << 8) | resp[4]) / 10.0;
+                double humidity = ((resp[5] << 8) | resp[6]) / 10.0;
                 double pressure = ((resp[7] << 8) | resp[8]) / 10.0;
+
+                // Reset error counters and log first successful poll
+                _pollExceptionCount = 0;
+                _badResponseCount   = 0;
+                if (!_firstPollLogged)
+                {
+                    SystemLogger.LogInfo($"[METEO] {_portName}: first successful poll — T={temp:0.0}°C RH={humidity:0.0}% P={pressure:0.0}mbar");
+                    _firstPollLogged = true;
+                }
 
                 HelideckDataHub.Instance.UpdateMeteoData(temp, humidity, pressure);
                 HelideckDataHub.Instance.UpdateRawString("METEO",
                     $"T={temp:0.00}°C  RH={humidity:0.00}%  P={pressure:0.0}mbar");
             }
-            catch
+            catch (Exception ex)
             {
                 // Port may have disconnected — ComEngine watchdog will detect and reopen it
+                _pollExceptionCount++;
+                if (ShouldLogThrottled(_pollExceptionCount))
+                    SystemLogger.LogInfo($"[METEO] {_portName}: poll exception count={_pollExceptionCount} — {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -150,6 +172,10 @@ namespace HelideckVer2.Services
             ushort crcRecv = (ushort)(r[total - 2] | (r[total - 1] << 8));
             return crcCalc == crcRecv;
         }
+
+        // Log on 1st occurrence, 5th, then every 30 — avoids spam while keeping signal visible
+        private static bool ShouldLogThrottled(int count) =>
+            count == 1 || count == 5 || count % 30 == 0;
 
         // CRC-16/IBM (polynomial 0xA001, Modbus standard)
         private static ushort Crc16(byte[] data, int len)

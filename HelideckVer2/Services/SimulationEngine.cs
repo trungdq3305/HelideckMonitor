@@ -24,9 +24,6 @@ namespace HelideckVer2.Services
                 double windSpeed = 15.0 + (rnd.NextDouble() * 10 - 5);
                 double windDir = 120.0 + (rnd.NextDouble() * 20 - 10);
 
-                double roll = 2.0 * Math.Sin(_simTimeCounter * 2 * Math.PI / 8.0) + (rnd.NextDouble() * 0.2 - 0.1);
-                double pitch = 1.5 * Math.Cos(_simTimeCounter * 2 * Math.PI / 6.0) + (rnd.NextDouble() * 0.2 - 0.1);
-                double heave = 30.0 * Math.Sin(_simTimeCounter * 2 * Math.PI / 5.0) + (rnd.NextDouble() * 0.2 - 0.1);
                 double heading = 180.0 + (rnd.NextDouble() * 4 - 2);
 
                 // Gửi kèm Checksum THẬT để lọt qua màng lọc khắt khe của Parser

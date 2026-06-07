@@ -13,6 +13,9 @@ namespace HelideckVer2.UI.Controls
         public enum TrendMode { Motion, Wind, Env }
 
         private Chart _chart;
+        private Panel _legendPanel;
+        private FlowLayoutPanel _legendFlow;
+        private readonly Dictionary<string, bool> _seriesVisible = new Dictionary<string, bool>();
         private TrendMode _currentMode = TrendMode.Motion;
         private bool _isSeparateTrend = false;
         private double _viewMinutes = 2.0;
@@ -20,11 +23,11 @@ namespace HelideckVer2.UI.Controls
         private bool _isLiveMode = true;
         private bool _isProgrammaticScroll = false;
         private readonly List<TrendPoint> _motionBuffer = new List<TrendPoint>();
-        private readonly List<TrendPoint> _windBuffer   = new List<TrendPoint>();
-        private readonly List<TrendPoint> _envBuffer    = new List<TrendPoint>();
+        private readonly List<TrendPoint> _windBuffer = new List<TrendPoint>();
+        private readonly List<TrendPoint> _envBuffer = new List<TrendPoint>();
 
-        private string _hoverText  = "";
-        private Point  _hoverPoint = Point.Empty;
+        private string _hoverText = "";
+        private Point _hoverPoint = Point.Empty;
         private double _hoverXValue = double.NaN; // giá trị X tại vị trí chuột — dùng để vẽ cursor trong PostPaint
 
         public TrendChartControl()
@@ -35,29 +38,51 @@ namespace HelideckVer2.UI.Controls
 
         private void InitializeComponent()
         {
-            _chart = new Chart
+            _legendFlow = new FlowLayoutPanel
             {
-                Dock      = DockStyle.Fill,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0),
+                Margin = new Padding(0)
+            };
+            _legendFlow.Layout += (s, e) => CenterLegendFlow();
+
+            _legendPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 42,
                 BackColor = Palette.ChartBg
             };
+            _legendPanel.Controls.Add(_legendFlow);
+            _legendPanel.Resize += (s, e) => CenterLegendFlow();
+
+            _chart = new Chart
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Palette.ChartBg
+            };
+
             this.Controls.Add(_chart);
+            this.Controls.Add(_legendPanel);
+        }
+
+        private void CenterLegendFlow()
+        {
+            if (_legendFlow == null || _legendPanel == null) return;
+            int x = Math.Max(0, (_legendPanel.Width - _legendFlow.Width) / 2);
+            int y = Math.Max(0, (_legendPanel.Height - _legendFlow.Height) / 2);
+            if (_legendFlow.Location.X != x || _legendFlow.Location.Y != y)
+                _legendFlow.Location = new Point(x, y);
         }
 
         private void SetupChart()
         {
-            var legend = new Legend
-            {
-                Docking   = Docking.Top,
-                Alignment = StringAlignment.Center,
-                Font      = new Font("Segoe UI", 10, FontStyle.Bold),
-                BackColor = Palette.ChartBg,
-                ForeColor = Palette.TextLabel
-            };
-            _chart.Legends.Add(legend);
-
-            _chart.MouseMove  += Chart_MouseMove;
+            _chart.MouseMove += Chart_MouseMove;
             _chart.MouseLeave += Chart_MouseLeave;
-            _chart.PostPaint  += Chart_PostPaint;
+            _chart.PostPaint += Chart_PostPaint;
             _chart.AxisViewChanged += Chart_AxisViewChanged;
 
             SetMode(TrendMode.Motion, false);
@@ -71,42 +96,37 @@ namespace HelideckVer2.UI.Controls
             _chart.ChartAreas.Clear();
 
             _chart.BackColor = Palette.ChartBg;
-            if (_chart.Legends.Count > 0)
-            {
-                _chart.Legends[0].BackColor = Palette.ChartBg;
-                _chart.Legends[0].ForeColor = Palette.TextLabel;
-            }
 
             if (_isSeparateTrend)
             {
                 if (mode == TrendMode.Motion)
                 {
                     AddArea("AreaRoll"); AddArea("AreaPitch"); AddArea("AreaHeave");
-                    AddSeries("Roll",  "AreaRoll",  Palette.SeriesRoll);
+                    AddSeries("Roll", "AreaRoll", Palette.SeriesRoll);
                     AddSeries("Pitch", "AreaPitch", Palette.SeriesPitch);
                     AddSeries("Heave", "AreaHeave", Palette.SeriesHeave);
                     AlignAreas("AreaPitch", "AreaRoll"); AlignAreas("AreaHeave", "AreaRoll");
-                    SetAreaYTitle("AreaRoll",  "Roll (°)",    Palette.SeriesRoll);
-                    SetAreaYTitle("AreaPitch", "Pitch (°)",   Palette.SeriesPitch);
-                    SetAreaYTitle("AreaHeave", "Heave (cm)",  Palette.SeriesHeave);
+                    SetAreaYTitle("AreaRoll", "Roll (°)", Palette.SeriesRoll);
+                    SetAreaYTitle("AreaPitch", "Pitch (°)", Palette.SeriesPitch);
+                    SetAreaYTitle("AreaHeave", "Heave (cm)", Palette.SeriesHeave);
                 }
                 else if (mode == TrendMode.Env)
                 {
                     AddArea("AreaTemp"); AddArea("AreaHumidity");
-                    AddSeries("Temp",     "AreaTemp",     Palette.SeriesRoll);
+                    AddSeries("Temp", "AreaTemp", Palette.SeriesRoll);
                     AddSeries("Humidity", "AreaHumidity", Palette.SeriesWSpeed);
                     AlignAreas("AreaHumidity", "AreaTemp");
-                    SetAreaYTitle("AreaTemp",     "Temp (°C)",     Palette.SeriesRoll);
-                    SetAreaYTitle("AreaHumidity", "Humidity (%)",  Palette.SeriesWSpeed, min: 0, max: 100);
+                    SetAreaYTitle("AreaTemp", "Temp (°C)", Palette.SeriesRoll);
+                    SetAreaYTitle("AreaHumidity", "Humidity (%)", Palette.SeriesWSpeed, min: 0, max: 100);
                 }
                 else
                 {
                     AddArea("AreaWindSpeed"); AddArea("AreaWindDir");
                     AddSeries("WindSpeed", "AreaWindSpeed", Palette.SeriesWSpeed);
-                    AddSeries("WindDir",   "AreaWindDir",   Palette.SeriesWDir);
+                    AddSeries("WindDir", "AreaWindDir", Palette.SeriesWDir);
                     AlignAreas("AreaWindDir", "AreaWindSpeed");
                     SetAreaYTitle("AreaWindSpeed", "Wind Speed (m/s)", Palette.SeriesWSpeed);
-                    SetAreaYTitle("AreaWindDir",   "Direction (°)",    Palette.SeriesWDir, min: 0, max: 360, interval: 90);
+                    SetAreaYTitle("AreaWindDir", "Direction (°)", Palette.SeriesWDir, min: 0, max: 360, interval: 90);
                 }
             }
             else if (mode == TrendMode.Env)
@@ -117,45 +137,45 @@ namespace HelideckVer2.UI.Controls
                 humSeries.YAxisType = AxisType.Secondary;
 
                 var area = _chart.ChartAreas["MainArea"];
-                area.AxisY.Title                    = "Temperature (°C)";
-                area.AxisY.TitleForeColor           = Palette.SeriesRoll;
-                area.AxisY.TitleFont                = new Font("Segoe UI", 11f, FontStyle.Bold);
-                area.AxisY2.Enabled                 = AxisEnabled.True;
-                area.AxisY2.Title                   = "Humidity (%)";
-                area.AxisY2.TitleForeColor          = Palette.SeriesWSpeed;
-                area.AxisY2.TitleFont               = new Font("Segoe UI", 11f, FontStyle.Bold);
-                area.AxisY2.LabelStyle.ForeColor    = Palette.SeriesWSpeed;
-                area.AxisY2.LabelStyle.Font         = new Font("Segoe UI", 9f, FontStyle.Bold);
-                area.AxisY2.Minimum                 = 0;
-                area.AxisY2.Maximum                 = 100;
-                area.AxisY2.LineColor               = Palette.SeriesWSpeed;
+                area.AxisY.Title = "Temperature (°C)";
+                area.AxisY.TitleForeColor = Palette.SeriesRoll;
+                area.AxisY.TitleFont = new Font("Segoe UI", 11f, FontStyle.Bold);
+                area.AxisY2.Enabled = AxisEnabled.True;
+                area.AxisY2.Title = "Humidity (%)";
+                area.AxisY2.TitleForeColor = Palette.SeriesWSpeed;
+                area.AxisY2.TitleFont = new Font("Segoe UI", 11f, FontStyle.Bold);
+                area.AxisY2.LabelStyle.ForeColor = Palette.SeriesWSpeed;
+                area.AxisY2.LabelStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+                area.AxisY2.Minimum = 0;
+                area.AxisY2.Maximum = 100;
+                area.AxisY2.LineColor = Palette.SeriesWSpeed;
                 area.AxisY2.MajorTickMark.LineColor = Palette.SeriesWSpeed;
-                area.AxisY2.MajorGrid.LineColor     = Color.Transparent;
+                area.AxisY2.MajorGrid.LineColor = Color.Transparent;
             }
             else
             {
                 AddArea("MainArea");
                 if (mode == TrendMode.Motion)
                 {
-                    AddSeries("Roll",  "MainArea", Palette.SeriesRoll);
+                    AddSeries("Roll", "MainArea", Palette.SeriesRoll);
                     AddSeries("Pitch", "MainArea", Palette.SeriesPitch);
 
                     var heaveSeries = AddSeries("Heave", "MainArea", Palette.SeriesHeave);
                     heaveSeries.YAxisType = AxisType.Secondary;
 
                     var area = _chart.ChartAreas["MainArea"];
-                    area.AxisY.Title          = "Roll / Pitch (°)";
+                    area.AxisY.Title = "Roll / Pitch (°)";
                     area.AxisY.TitleForeColor = Palette.TextLabel;
-                    area.AxisY.TitleFont      = new Font("Segoe UI", 11f, FontStyle.Bold);
-                    area.AxisY2.Enabled                 = AxisEnabled.True;
-                    area.AxisY2.Title                   = "Heave (cm)";
-                    area.AxisY2.TitleForeColor          = Palette.SeriesHeave;
-                    area.AxisY2.TitleFont               = new Font("Segoe UI", 11f, FontStyle.Bold);
-                    area.AxisY2.LabelStyle.ForeColor    = Palette.SeriesHeave;
-                    area.AxisY2.LabelStyle.Font         = new Font("Segoe UI", 9f, FontStyle.Bold);
-                    area.AxisY2.LineColor               = Palette.SeriesHeave;
+                    area.AxisY.TitleFont = new Font("Segoe UI", 11f, FontStyle.Bold);
+                    area.AxisY2.Enabled = AxisEnabled.True;
+                    area.AxisY2.Title = "Heave (cm)";
+                    area.AxisY2.TitleForeColor = Palette.SeriesHeave;
+                    area.AxisY2.TitleFont = new Font("Segoe UI", 11f, FontStyle.Bold);
+                    area.AxisY2.LabelStyle.ForeColor = Palette.SeriesHeave;
+                    area.AxisY2.LabelStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+                    area.AxisY2.LineColor = Palette.SeriesHeave;
                     area.AxisY2.MajorTickMark.LineColor = Palette.SeriesHeave;
-                    area.AxisY2.MajorGrid.LineColor     = Color.Transparent;
+                    area.AxisY2.MajorGrid.LineColor = Color.Transparent;
                 }
                 else
                 {
@@ -164,60 +184,153 @@ namespace HelideckVer2.UI.Controls
                     dirSeries.YAxisType = AxisType.Secondary;
 
                     var area = _chart.ChartAreas["MainArea"];
-                    area.AxisY.Title          = "Wind Speed (m/s)";
+                    area.AxisY.Title = "Wind Speed (m/s)";
                     area.AxisY.TitleForeColor = Palette.SeriesWSpeed;
-                    area.AxisY.TitleFont      = new Font("Segoe UI", 11f, FontStyle.Bold);
-                    area.AxisY2.Enabled                 = AxisEnabled.True;
-                    area.AxisY2.Title                   = "Direction (°)";
-                    area.AxisY2.TitleForeColor          = Palette.SeriesWDir;
-                    area.AxisY2.TitleFont               = new Font("Segoe UI", 11f, FontStyle.Bold);
-                    area.AxisY2.LabelStyle.ForeColor    = Palette.SeriesWDir;
-                    area.AxisY2.LabelStyle.Font         = new Font("Segoe UI", 9f, FontStyle.Bold);
-                    area.AxisY2.Minimum                 = 0;
-                    area.AxisY2.Maximum                 = 360;
-                    area.AxisY2.Interval                = 90;
-                    area.AxisY2.LineColor               = Palette.SeriesWDir;
+                    area.AxisY.TitleFont = new Font("Segoe UI", 11f, FontStyle.Bold);
+                    area.AxisY2.Enabled = AxisEnabled.True;
+                    area.AxisY2.Title = "Direction (°)";
+                    area.AxisY2.TitleForeColor = Palette.SeriesWDir;
+                    area.AxisY2.TitleFont = new Font("Segoe UI", 11f, FontStyle.Bold);
+                    area.AxisY2.LabelStyle.ForeColor = Palette.SeriesWDir;
+                    area.AxisY2.LabelStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+                    area.AxisY2.Minimum = 0;
+                    area.AxisY2.Maximum = 360;
+                    area.AxisY2.Interval = 90;
+                    area.AxisY2.LineColor = Palette.SeriesWDir;
                     area.AxisY2.MajorTickMark.LineColor = Palette.SeriesWDir;
-                    area.AxisY2.MajorGrid.LineColor     = Color.Transparent;
+                    area.AxisY2.MajorGrid.LineColor = Color.Transparent;
                 }
             }
+
+            // Xây dựng legend panel tùy mode
+            if (mode == TrendMode.Motion)
+                RebuildLegendPanel(new[] {
+                    ("Roll",  Palette.SeriesRoll),
+                    ("Pitch", Palette.SeriesPitch),
+                    ("Heave", Palette.SeriesHeave)
+                });
+            else if (mode == TrendMode.Wind)
+                RebuildLegendPanel(new[] {
+                    ("WindSpeed", Palette.SeriesWSpeed),
+                    ("WindDir",   Palette.SeriesWDir)
+                });
+            else
+                RebuildLegendPanel(new[] {
+                    ("Temp",     Palette.SeriesRoll),
+                    ("Humidity", Palette.SeriesWSpeed)
+                });
+        }
+
+        private void RebuildLegendPanel((string Name, Color Color)[] items)
+        {
+            if (_legendFlow == null) return;
+            _legendFlow.SuspendLayout();
+            _legendFlow.Controls.Clear();
+            _seriesVisible.Clear();
+            _legendPanel.BackColor = Palette.ChartBg;
+
+            foreach (var item in items)
+            {
+                _seriesVisible[item.Name] = true;
+                Color lineColor = item.Color; // capture for closure
+
+                // Container ngang cho 1 legend item
+                var container = new FlowLayoutPanel
+                {
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    WrapContents = false,
+                    BackColor = Color.Transparent,
+                    Margin = new Padding(18, 0, 18, 0),
+                    Padding = new Padding(0)
+                };
+
+                // Đường màu indicator (vẽ bằng Paint)
+                var lineInd = new Label
+                {
+                    AutoSize = false,
+                    Width = 34,
+                    Height = 42,
+                    BackColor = Color.Transparent,
+                    Margin = new Padding(0, 0, 6, 0)
+                };
+                lineInd.Paint += (s, e) =>
+                {
+                    int barH = 3;
+                    int y = (lineInd.Height - barH) / 2;
+                    e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    using var brush = new SolidBrush(lineColor);
+                    using var pen = new Pen(lineColor, barH);
+                    e.Graphics.DrawLine(pen, 0, y + barH / 2, lineInd.Width, y + barH / 2);
+                };
+
+                var cb = new CheckBox
+                {
+                    Text = item.Name,
+                    Checked = true,
+                    AutoSize = true,
+                    ForeColor = item.Color,
+                    BackColor = Color.Transparent,
+                    Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+                    Margin = new Padding(0, 6, 0, 0),
+                    Tag = item.Name
+                };
+                cb.CheckedChanged += LegendCheckBox_Changed;
+
+                container.Controls.Add(lineInd);
+                container.Controls.Add(cb);
+                _legendFlow.Controls.Add(container);
+            }
+
+            _legendFlow.ResumeLayout();
+        }
+
+        private void LegendCheckBox_Changed(object sender, EventArgs e)
+        {
+            if (sender is not CheckBox cb) return;
+            string name = (string)cb.Tag;
+            bool visible = cb.Checked;
+            _seriesVisible[name] = visible;
+            var s = _chart.Series.FindByName(name);
+            if (s != null) s.Enabled = visible;
         }
 
         private void AddArea(string name)
         {
             var area = new ChartArea(name)
             {
-                BackColor        = Palette.ChartBg,
-                BorderColor      = Palette.BorderPanel,
-                BorderDashStyle  = ChartDashStyle.Solid,
-                BorderWidth      = 1
+                BackColor = Palette.ChartBg,
+                BorderColor = Palette.BorderPanel,
+                BorderDashStyle = ChartDashStyle.Solid,
+                BorderWidth = 1
             };
 
-            area.AxisX.LabelStyle.Format      = "HH:mm:ss";
-            area.AxisX.LabelStyle.ForeColor   = Palette.TextLabel;
-            area.AxisX.LabelStyle.Font        = new Font("Segoe UI", 9f, FontStyle.Bold);
-            area.AxisX.LineColor              = Palette.BorderPanel;
+            area.AxisX.LabelStyle.Format = "HH:mm:ss";
+            area.AxisX.LabelStyle.ForeColor = Palette.TextLabel;
+            area.AxisX.LabelStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            area.AxisX.LineColor = Palette.BorderPanel;
             area.AxisX.MajorTickMark.LineColor = Palette.BorderCard;
-            area.AxisX.MajorGrid.LineColor    = Palette.GridLine;
+            area.AxisX.MajorGrid.LineColor = Palette.GridLine;
             area.AxisX.MajorGrid.LineDashStyle = ChartDashStyle.Dash;
 
-            area.AxisY.LabelStyle.ForeColor   = Palette.TextLabel;
-            area.AxisY.LabelStyle.Font        = new Font("Segoe UI", 9f, FontStyle.Bold);
-            area.AxisY.TitleFont              = new Font("Segoe UI", 12f, FontStyle.Bold);
-            area.AxisY.LineColor              = Palette.BorderPanel;
+            area.AxisY.LabelStyle.ForeColor = Palette.TextLabel;
+            area.AxisY.LabelStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            area.AxisY.TitleFont = new Font("Segoe UI", 12f, FontStyle.Bold);
+            area.AxisY.LineColor = Palette.BorderPanel;
             area.AxisY.MajorTickMark.LineColor = Palette.BorderCard;
-            area.AxisY.MajorGrid.LineColor    = Palette.GridLine;
+            area.AxisY.MajorGrid.LineColor = Palette.GridLine;
             area.AxisY.MajorGrid.LineDashStyle = ChartDashStyle.Dash;
 
             // Tắt built-in cursor — tự vẽ trong PostPaint để tránh double-repaint gây giật
             area.CursorX.IsUserEnabled = false;
             area.CursorY.IsUserEnabled = false;
 
-            area.AxisX.ScrollBar.Enabled      = true;
-            area.AxisX.ScrollBar.BackColor    = Palette.PanelBg;
-            area.AxisX.ScrollBar.ButtonColor  = Palette.SurfaceHi;
-            area.AxisX.ScrollBar.LineColor    = Palette.BorderCard;
-            area.AxisX.ScaleView.Zoomable     = true;
+            area.AxisX.ScrollBar.Enabled = true;
+            area.AxisX.ScrollBar.BackColor = Palette.PanelBg;
+            area.AxisX.ScrollBar.ButtonColor = Palette.SurfaceHi;
+            area.AxisX.ScrollBar.LineColor = Palette.BorderCard;
+            area.AxisX.ScaleView.Zoomable = true;
 
             _chart.ChartAreas.Add(area);
         }
@@ -226,11 +339,11 @@ namespace HelideckVer2.UI.Controls
         {
             var s = new Series(name)
             {
-                ChartType    = SeriesChartType.FastLine,
-                BorderWidth  = 2,
-                XValueType   = ChartValueType.DateTime,
-                ChartArea    = areaName,
-                Color        = color
+                ChartType = SeriesChartType.FastLine,
+                BorderWidth = 2,
+                XValueType = ChartValueType.DateTime,
+                ChartArea = areaName,
+                Color = color
             };
             _chart.Series.Add(s);
             return s;
@@ -238,9 +351,9 @@ namespace HelideckVer2.UI.Controls
 
         private void AlignAreas(string target, string master)
         {
-            _chart.ChartAreas[target].AlignWithChartArea     = master;
-            _chart.ChartAreas[target].AlignmentOrientation   = AreaAlignmentOrientations.Vertical;
-            _chart.ChartAreas[target].AlignmentStyle         = AreaAlignmentStyles.PlotPosition | AreaAlignmentStyles.AxesView;
+            _chart.ChartAreas[target].AlignWithChartArea = master;
+            _chart.ChartAreas[target].AlignmentOrientation = AreaAlignmentOrientations.Vertical;
+            _chart.ChartAreas[target].AlignmentStyle = AreaAlignmentStyles.PlotPosition | AreaAlignmentStyles.AxesView;
         }
 
         public void PushMotionData(double r, double p, double h)
@@ -281,32 +394,32 @@ namespace HelideckVer2.UI.Controls
         public void Render()
         {
             if (_chart.IsDisposed) return;
-            double nowX     = DateTime.Now.ToOADate();
+            double nowX = DateTime.Now.ToOADate();
             double viewSize = _viewMinutes / 1440.0;
-            double minX     = DateTime.Now.AddMinutes(-BufferMinutes).ToOADate();
+            double minX = DateTime.Now.AddMinutes(-BufferMinutes).ToOADate();
 
             _chart.SuspendLayout();
             if (_currentMode == TrendMode.Motion)
             {
-                UpdateSeries("Roll",  _motionBuffer, 1);
+                UpdateSeries("Roll", _motionBuffer, 1);
                 UpdateSeries("Pitch", _motionBuffer, 2);
                 UpdateSeries("Heave", _motionBuffer, 3);
             }
             else if (_currentMode == TrendMode.Env)
             {
-                UpdateSeries("Temp",     _envBuffer, 1);
+                UpdateSeries("Temp", _envBuffer, 1);
                 UpdateSeries("Humidity", _envBuffer, 2);
             }
             else
             {
                 UpdateSeries("WindSpeed", _windBuffer, 1);
-                UpdateSeries("WindDir",   _windBuffer, 2);
+                UpdateSeries("WindDir", _windBuffer, 2);
             }
 
             foreach (var area in _chart.ChartAreas)
             {
-                area.AxisX.Minimum        = minX;
-                area.AxisX.Maximum        = nowX;
+                area.AxisX.Minimum = minX;
+                area.AxisX.Maximum = nowX;
                 area.AxisX.ScaleView.Size = viewSize;
 
                 if (_isLiveMode)
@@ -322,7 +435,7 @@ namespace HelideckVer2.UI.Controls
         private void UpdateSeries(string name, List<TrendPoint> buffer, int valIdx)
         {
             var s = _chart.Series.FindByName(name);
-            if (s == null) return;
+            if (s == null || !s.Enabled) return;
             TrendPoint[] data; lock (buffer) { data = buffer.ToArray(); }
             s.Points.Clear();
             foreach (var p in data) s.Points.AddXY(p.X, valIdx == 1 ? p.V1 : valIdx == 2 ? p.V2 : p.V3);
@@ -385,7 +498,7 @@ namespace HelideckVer2.UI.Controls
                     }
                 }
 
-                _hoverText  = hasData ? tip : "";
+                _hoverText = hasData ? tip : "";
                 _hoverPoint = e.Location;
             }
             catch { _hoverText = ""; }
@@ -393,7 +506,7 @@ namespace HelideckVer2.UI.Controls
 
         private void Chart_MouseLeave(object sender, EventArgs e)
         {
-            _hoverText   = "";
+            _hoverText = "";
             _hoverXValue = double.NaN;
         }
 
@@ -401,6 +514,29 @@ namespace HelideckVer2.UI.Controls
         private void Chart_PostPaint(object sender, ChartPaintEventArgs e)
         {
             Graphics g = e.ChartGraphics.Graphics;
+
+            // Vẽ đường 0 ngang — trục Y đã tự hiện nhãn "0", chỉ cần kẻ thêm đường nhấn mạnh
+            using (var zeroPen = new Pen(Color.FromArgb(200, Palette.TextLabel), 1.5f))
+            {
+                zeroPen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash;
+                foreach (var area in _chart.ChartAreas)
+                {
+                    try
+                    {
+                        float py = (float)area.AxisY.ValueToPixelPosition(0.0);
+                        if (py <= 0 || py >= _chart.Height) continue;
+
+                        float areaXf = _chart.Width * area.Position.X            / 100f;
+                        float areaWf = _chart.Width * area.Position.Width         / 100f;
+                        float plotX  = areaXf + areaWf * area.InnerPlotPosition.X / 100f;
+                        float plotW  = areaWf * area.InnerPlotPosition.Width       / 100f;
+                        if (plotW <= 0) continue;
+
+                        g.DrawLine(zeroPen, plotX, py, plotX + plotW, py);
+                    }
+                    catch { }
+                }
+            }
 
             // Vẽ đường cursor dọc trên tất cả các area
             if (!double.IsNaN(_hoverXValue))
@@ -425,15 +561,15 @@ namespace HelideckVer2.UI.Controls
             if (!string.IsNullOrEmpty(_hoverText))
             {
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                using var f      = new Font("Segoe UI", 10, FontStyle.Bold);
+                using var f = new Font("Segoe UI", 10, FontStyle.Bold);
                 using var bgBrush = new SolidBrush(Color.FromArgb(220, Palette.CardBg.R, Palette.CardBg.G, Palette.CardBg.B));
-                using var border  = new Pen(Palette.BorderCard, 1);
+                using var border = new Pen(Palette.BorderCard, 1);
                 using var fgBrush = new SolidBrush(Palette.TextValue);
 
                 SizeF size = g.MeasureString(_hoverText, f);
                 float x = _hoverPoint.X + 15;
                 float y = _hoverPoint.Y + 15;
-                if (x + size.Width  + 10 > _chart.Width)  x = _chart.Width  - size.Width  - 15;
+                if (x + size.Width + 10 > _chart.Width) x = _chart.Width - size.Width - 15;
                 if (y + size.Height + 10 > _chart.Height) y = _chart.Height - size.Height - 15;
 
                 var rect = new RectangleF(x, y, size.Width + 10, size.Height + 10);
@@ -447,15 +583,15 @@ namespace HelideckVer2.UI.Controls
                                     double min = double.NaN, double max = double.NaN, double interval = double.NaN)
         {
             var a = _chart.ChartAreas[areaName];
-            a.AxisY.Title          = title;
+            a.AxisY.Title = title;
             a.AxisY.TitleForeColor = color;
-            a.AxisY.TitleFont      = new Font("Segoe UI", 11f, FontStyle.Bold);
+            a.AxisY.TitleFont = new Font("Segoe UI", 11f, FontStyle.Bold);
             a.AxisY.LabelStyle.ForeColor = color;
-            a.AxisY.LabelStyle.Font      = new Font("Segoe UI", 9f, FontStyle.Bold);
-            a.AxisY.LineColor            = color;
+            a.AxisY.LabelStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            a.AxisY.LineColor = color;
             a.AxisY.MajorTickMark.LineColor = color;
-            if (!double.IsNaN(min))      a.AxisY.Minimum  = min;
-            if (!double.IsNaN(max))      a.AxisY.Maximum  = max;
+            if (!double.IsNaN(min)) a.AxisY.Minimum = min;
+            if (!double.IsNaN(max)) a.AxisY.Maximum = max;
             if (!double.IsNaN(interval)) a.AxisY.Interval = interval;
         }
 
@@ -464,9 +600,9 @@ namespace HelideckVer2.UI.Controls
             if (!_isProgrammaticScroll && _chart.ChartAreas.Count > 0)
             {
                 ChartArea area = _chart.ChartAreas[0];
-                double max     = area.AxisX.Maximum;
+                double max = area.AxisX.Maximum;
                 double viewEnd = area.AxisX.ScaleView.Position + area.AxisX.ScaleView.Size;
-                _isLiveMode    = Math.Abs(max - viewEnd) < (5.0 / 86400.0);
+                _isLiveMode = Math.Abs(max - viewEnd) < (5.0 / 86400.0);
             }
         }
     }

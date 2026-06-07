@@ -38,10 +38,14 @@ namespace HelideckVer2.Services
             double rollDeg, double pitchDeg, double heaveCm,
             double heavePeriodSec,
             double windSpeedMs, double windDirDeg,
+            double tempC, double humidityPct, double pressureHPa,
             string gpsLat = "", string gpsLon = "")
         {
             DateTime now = DateTime.Now;
-            string line = $"{now:HH:mm:ss.fff},DATA,{speedKnot:0.000},{headingDeg:0.0},{rollDeg:0.000},{pitchDeg:0.000},{heaveCm:0.000},{heavePeriodSec:0.0},{windSpeedMs:0.000},{windDirDeg:0.0},,,,{gpsLat},{gpsLon}";
+            // Cols: Time,Type,SpeedKnot,HeadingDeg,RollDeg,PitchDeg,HeaveCm,HeavePeriodSec,WindSpeedMs,WindDirDeg,
+            //       AlarmId(empty),AlarmState(empty),Value(empty),Limit(empty),Raw(empty),
+            //       TempC,HumidityPct,PressureHPa,GpsLat,GpsLon
+            string line = $"{now:HH:mm:ss.fff},DATA,{speedKnot:0.000},{headingDeg:0.0},{rollDeg:0.000},{pitchDeg:0.000},{heaveCm:0.000},{heavePeriodSec:0.0},{windSpeedMs:0.000},{windDirDeg:0.0},,,,,,{tempC:0.00},{humidityPct:0.00},{pressureHPa:0.0},{gpsLat},{gpsLon}";
             _logBuffer.Enqueue(line);
         }
 
@@ -80,7 +84,7 @@ namespace HelideckVer2.Services
                 // Thêm Header nếu file mới tinh
                 if (!File.Exists(filePath))
                 {
-                    linesToWrite.Insert(0, "Time,Type,SpeedKnot,HeadingDeg,RollDeg,PitchDeg,HeaveCm,HeavePeriodSec,WindSpeedMs,WindDirDeg,AlarmId,AlarmState,Value,Limit,Raw,GpsLat,GpsLon");
+                    linesToWrite.Insert(0, "Time,Type,SpeedKnot,HeadingDeg,RollDeg,PitchDeg,HeaveCm,HeavePeriodSec,WindSpeedMs,WindDirDeg,AlarmId,AlarmState,Value,Limit,Raw,TempC,HumidityPct,PressureHPa,GpsLat,GpsLon");
                 }
 
                 // Ghi TOÀN BỘ List xuống ổ cứng ĐÚNG 1 LẦN (Nhanh và bảo vệ ổ cứng)
