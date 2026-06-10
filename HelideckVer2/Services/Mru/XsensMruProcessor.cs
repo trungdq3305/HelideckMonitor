@@ -248,15 +248,14 @@ namespace HelideckVer2.Services.Mru
 
         // Process noise per second — tăng nếu muốn respond nhanh hơn
         public double QPos = 1e-3;
-        public double QVel = 1e-2;
+        public double QVel = 5e-2;
 
         // ZUPT measurement noise — nhỏ = kéo về 0 nhanh; lớn = kéo chậm
-        public double RZupt = 0.05;
+        public double RZupt = 0.1;
 
         // Ngưỡng gia tốc để kích hoạt ZUPT
-        public double AccThreshold = 0.05;
-
-        public double Heave    => _h;
+        public double AccThreshold = 0.02;
+        public double Heave => _h;
         public double Velocity => _v;
 
         public void Reset() { _h = _v = 0; _p00 = _p11 = 0.1; _p01 = 0; }

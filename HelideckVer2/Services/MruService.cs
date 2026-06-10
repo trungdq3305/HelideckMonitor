@@ -41,6 +41,16 @@ namespace HelideckVer2.Services
         private int _checksumFailCount;
         private int _timeoutFailCount;
 
+        // Debug telemetry — read by MainForm UI
+        public double LastAccZ         { get; private set; }
+        public double LastDt           { get; private set; }
+        public double LastDtSmoothed   { get; private set; }
+        public double LastHeaveVelocity{ get; private set; }
+        public bool   UsingSampleFine  { get; private set; }
+        public long   FrameCount       { get; private set; }
+        private double _pendingDt;
+        private bool   _pendingUsingSampleFine;
+
         // Simulation
         private readonly Random _rng = new Random();
         private System.Timers.Timer _simTimer;
@@ -134,6 +144,8 @@ namespace HelideckVer2.Services
             var out_ = _processor.UpdateEuler(_simRoll, _simPitch, _simYaw, acc, rot, dt);
             if (!out_.Valid) return;
 
+            _pendingDt              = dt;
+            _pendingUsingSampleFine = false;
             PublishOutput(out_);
             HelideckDataHub.Instance.UpdateRawString("R/P/H",
                 $"SIM MRU R={out_.RollDeg:0.00}° P={out_.PitchDeg:0.00}° H={out_.HeadingDeg:0.0}° Heave={out_.HeaveInstantCg * 100:0.0}cm");
@@ -339,8 +351,10 @@ namespace HelideckVer2.Services
                     ? 0.01
                     : Math.Clamp((now - _lastFrameTime).TotalSeconds, 0.001, 0.2);
             }
-            _prevSampleFine = _curSampleFine;
-            _lastFrameTime = DateTime.UtcNow;
+            _prevSampleFine          = _curSampleFine;
+            _lastFrameTime           = DateTime.UtcNow;
+            _pendingDt               = dt;
+            _pendingUsingSampleFine  = _hasSampleFine && _lastFrameTime != DateTime.MinValue;
 
             var freeAcc = _hasFreeAcc ? new Vec3(_ax, _ay, _az) : new Vec3(0, 0, 0);
             var rotBody = _hasRoT ? new Vec3(_wx, _wy, _wz) : new Vec3(0, 0, 0);
@@ -365,11 +379,18 @@ namespace HelideckVer2.Services
 
         private void PublishOutput(MruOutput o)
         {
-            // Lưu giá trị CÓ DẤU để MainForm tính zero-crossing (chu kỳ heave)
-            // MainForm dùng Math.Abs khi hiển thị và update alarm tag
+            LastAccZ          = o.VerticalAcceleration;
+            LastDt            = _pendingDt;
+            LastDtSmoothed    = LastDtSmoothed < 0.0001
+                                ? _pendingDt
+                                : 0.9 * LastDtSmoothed + 0.1 * _pendingDt;
+            LastHeaveVelocity = o.HeaveVelocity;
+            UsingSampleFine   = _pendingUsingSampleFine;
+            FrameCount++;
+
             HelideckDataHub.Instance.UpdateNumericData("R/P/H",
-                Math.Abs(o.RollDeg),
-                Math.Abs(o.PitchDeg),
+                o.RollDeg,
+                o.PitchDeg,
                 o.HeaveInstantCg * 100.0);
         }
 

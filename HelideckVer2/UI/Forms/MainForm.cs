@@ -62,6 +62,11 @@ namespace HelideckVer2
         private Label _lblTemp, _lblHumidity, _lblPressure;
         private Label[] _unitLabels = new Label[12];
 
+        // ── HEAVE MIN/MAX ROLLING WINDOW ─────────────────────────────────────
+        private const double HeaveMinMaxWindowSec = 60.0; // thay đổi tại đây để điều chỉnh cửa sổ thời gian
+        private readonly Queue<(DateTime ts, double val)> _heaveHistory = new Queue<(DateTime ts, double val)>();
+        private Label _lblHeaveMax, _lblHeaveMin;
+
         private HelideckVer2.UI.Controls.TrendChartControl _trendControl;
 
         // ── CONSTRUCTOR ───────────────────────────────────────────────────────
@@ -552,6 +557,48 @@ namespace HelideckVer2
                 card.Controls.Add(unitLbl);   // Bottom dock trước Fill
                 card.Controls.Add(titles[i]); // Top dock trước Bottom
 
+                // HEAVE card: hai label góc trái/phải trên vùng unit
+                if (i == 5)
+                {
+                    _lblHeaveMax = new Label
+                    {
+                        AutoSize  = false,
+                        TextAlign = ContentAlignment.MiddleLeft,
+                        BackColor = Color.Transparent,
+                        ForeColor = Color.FromArgb(80, 200, 100),
+                        Font      = new Font("Consolas", 7.5f, FontStyle.Regular),
+                        Text      = "▲---",
+                        Padding   = new Padding(2, 0, 0, 0)
+                    };
+                    _lblHeaveMin = new Label
+                    {
+                        AutoSize  = false,
+                        TextAlign = ContentAlignment.MiddleRight,
+                        BackColor = Color.Transparent,
+                        ForeColor = Color.FromArgb(255, 130, 50),
+                        Font      = new Font("Consolas", 7.5f, FontStyle.Regular),
+                        Text      = "▼---",
+                        Padding   = new Padding(0, 0, 2, 0)
+                    };
+                    card.Controls.Add(_lblHeaveMax);
+                    card.Controls.Add(_lblHeaveMin);
+                    _lblHeaveMax.BringToFront();
+                    _lblHeaveMin.BringToFront();
+
+                    card.Resize += (s2, e2) =>
+                    {
+                        if (card.Height <= 0) return;
+                        int uH = (_unitLabels[5] != null) ? _unitLabels[5].Height : 18;
+                        int y  = card.Height - uH;
+                        int w  = (card.Width - 4) * 2 / 5;
+                        _lblHeaveMax.Bounds = new Rectangle(2, y, w, uH);
+                        _lblHeaveMin.Bounds = new Rectangle(card.Width - w - 2, y, w, uH);
+                        float f = Math.Max(6f, Math.Min(uH * 0.55f, 10f));
+                        SafeSetFont(_lblHeaveMax, f);
+                        SafeSetFont(_lblHeaveMin, f);
+                    };
+                }
+
                 if (i == 0)
                 {
                     tableLayoutPanel2.Controls.Add(card, 0, 0);
@@ -596,9 +643,8 @@ namespace HelideckVer2
         {
             double roll  = r + _rollOffset;
             double pitch = p + _pitchOffset;
-            _rawHeaveCm  = h; // giữ dấu để tính zero-crossing
-            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("R/P/H",
-                Math.Abs(roll), Math.Abs(pitch), Math.Abs(h));
+            _rawHeaveCm  = h;
+            HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("R/P/H", roll, pitch, h);
             _rollTag.Update(Math.Abs(roll));
             _pitchTag.Update(Math.Abs(pitch));
             _heaveTag.Update(Math.Abs(h));
@@ -701,11 +747,28 @@ namespace HelideckVer2
             lblWindRelated.Text= $"{snap.WindDirDeg:0}";
             lblRoll.Text       = $"{snap.RollDeg:0.0}";
             lblPitch.Text      = $"{snap.PitchDeg:0.0}";
-            lblHeave.Text      = $"{Math.Abs(snap.HeaveCm):0.0}";
+            lblHeave.Text      = $"{snap.HeaveCm:0.0}";
 
-            // Update alarm tags từ DataHub (MruService ghi trực tiếp vào DataHub, không qua event)
-            _rollTag.Update(snap.RollDeg);
-            _pitchTag.Update(snap.PitchDeg);
+            // Rolling min/max for heave
+            _heaveHistory.Enqueue((DateTime.Now, snap.HeaveCm));
+            var cutoff = DateTime.Now.AddSeconds(-HeaveMinMaxWindowSec);
+            while (_heaveHistory.Count > 0 && _heaveHistory.Peek().ts < cutoff)
+                _heaveHistory.Dequeue();
+            if (_lblHeaveMax != null && _heaveHistory.Count > 0)
+            {
+                double hMax = double.MinValue, hMin = double.MaxValue;
+                foreach (var entry in _heaveHistory)
+                {
+                    if (entry.val > hMax) hMax = entry.val;
+                    if (entry.val < hMin) hMin = entry.val;
+                }
+                _lblHeaveMax.Text = $"▲{hMax:+0.0;-0.0;0.0}";
+                _lblHeaveMin.Text = $"▼{hMin:+0.0;-0.0;0.0}";
+            }
+
+            // Alarm tags dùng giá trị tuyệt đối vì giới hạn là dương
+            _rollTag.Update(Math.Abs(snap.RollDeg));
+            _pitchTag.Update(Math.Abs(snap.PitchDeg));
             _heaveTag.Update(Math.Abs(snap.HeaveCm));
             _rawHeaveCm = snap.HeaveCm;  // có dấu — dùng để tính zero-crossing chu kỳ heave
             lblSpeed.Text      = $"{snap.GpsSpeedKnot:0.0}";
@@ -732,6 +795,7 @@ namespace HelideckVer2
 
             // 6. Radar
             _radarControl.UpdateRadar(snap.Heading, snap.WindDirDeg);
+
 
             // 6. Tính chu kỳ Heave (zero-crossing âm→dương trên giá trị CÓ DẤU)
             DateTime now = DateTime.Now;
