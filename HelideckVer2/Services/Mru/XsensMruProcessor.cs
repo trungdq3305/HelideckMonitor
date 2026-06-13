@@ -313,8 +313,16 @@ namespace HelideckVer2.Services.Mru
         public double AccDeadband = 0.10;
         public double MaxVerticalAcceleration = 15.0;
 
-        private readonly HeaveKalmanFilter _kalman = new HeaveKalmanFilter();
+        private readonly HeaveKalmanFilter _kalman = new HeaveKalmanFilter(); // kept for reference
         private readonly HeaveCycleAnalyzer _cgCycle = new HeaveCycleAnalyzer();
+
+        // Bias-aware heave integration
+        private double _accBias = 0;
+        private double _heaveVelocity = 0;
+        private double _heave = 0;
+        private readonly LowPassFilter _accLowPass = new LowPassFilter(2.0);    // keep < 2 Hz (covers manual test and maritime heave)
+        private readonly HighPassFilter _accHighPass = new HighPassFilter(0.04);  // remove DC (> 25 s)
+        private readonly HighPassFilter _heaveHighPass = new HighPassFilter(0.04);  // remove residual drift
 
 
         public void SetSensorPosition(double xMeter, double yMeter, double zMeter)
@@ -342,6 +350,12 @@ namespace HelideckVer2.Services.Mru
         {
             _kalman.Reset();
             _cgCycle.Reset();
+            _accBias = 0;
+            _heaveVelocity = 0;
+            _heave = 0;
+            _accLowPass.Reset();
+            _accHighPass.Reset();
+            _heaveHighPass.Reset();
         }
 
         public MruOutput UpdateEuler(
@@ -372,10 +386,64 @@ namespace HelideckVer2.Services.Mru
                 return output;
             }
 
-            // Kalman Filter with ZUPT (Zero Velocity Update)
-            // Predict: integrate acc. Update: pull to 0 when stationary.
-            double heaveInstantCg = _kalman.Update(verticalAcc, dt);
+            // Convert rotation rate to deg/s (needed for stationary detection)
+            Vec3 rotDegS = rotInputIsDegPerSec
+                ? rateOfTurnBody
+                : new Vec3(RadToDeg(rateOfTurnBody.X), RadToDeg(rateOfTurnBody.Y), RadToDeg(rateOfTurnBody.Z));
 
+            // ── HEAVE: bias-aware band-pass integration ──────────────────────
+            double rotRate = Math.Sqrt(rotDegS.X * rotDegS.X + rotDegS.Y * rotDegS.Y + rotDegS.Z * rotDegS.Z);
+
+            // Stationary: raised rot threshold to 0.5 deg/s to overcome gyro noise floor (~0.05 deg/s RMS)
+            bool stationary =
+                rotRate < 0.5 &&
+                Math.Abs(verticalAcc) < 0.08;
+
+            // Bias EMA: learn fast when stationary, nearly frozen when moving
+            _accBias = stationary
+                ? 0.995 * _accBias + 0.005 * verticalAcc
+                : 0.9999 * _accBias + 0.0001 * verticalAcc;
+
+            double acc = verticalAcc - _accBias;
+
+            // Deadband — only remove sensor noise floor
+            if (Math.Abs(acc) < 0.03) acc = 0;
+
+            double absAcc = Math.Abs(acc);
+
+            // badMotion: only reject extreme mechanical spikes
+            bool badMotion = absAcc > 5.0 || rotRate > 30.0;
+
+            if (stationary)
+            {
+                // Soft decay to zero
+                _heaveVelocity *= 0.85;
+                _heave         *= 0.95;
+                if (Math.Abs(_heaveVelocity) < 0.003) _heaveVelocity = 0;
+                if (Math.Abs(_heave)         < 0.003) _heave         = 0;
+            }
+            else if (badMotion)
+            {
+                // Mechanical spike: hold, don't integrate
+                _heaveVelocity *= 0.98;
+                _heave         *= 0.995;
+            }
+            else
+            {
+                // HPF removes DC drift; LPF removes noise above heave band
+                acc = _accHighPass.Update(acc, dt);
+                acc = _accLowPass.Update(acc, dt);
+
+                _heaveVelocity += acc * dt;
+                // No damping during active motion — damping only via stationary decay
+                _heaveVelocity  = Math.Max(-5.0, Math.Min(5.0, _heaveVelocity));
+                _heave         += _heaveVelocity * dt;
+            }
+
+            // Use integrated position directly — drift is handled by bias EMA + stationary decay + acc HPF
+            // Removing HPF on position to eliminate undershoot/sign-change artifact
+            double heaveInstantCg = Math.Max(-5.0, Math.Min(5.0, _heave));
+            // ─────────────────────────────────────────────────────────────────
 
             double heaveAtSensor = ApplyPositionCompensation(heaveInstantCg, Installation.SensorFromCg, roll, pitch);
             double heaveAtBow = ApplyPositionCompensation(heaveInstantCg, Installation.BowFromCg, roll, pitch);
@@ -383,10 +451,6 @@ namespace HelideckVer2.Services.Mru
             double heaveAtCustom = ApplyPositionCompensation(heaveInstantCg, Installation.CustomPointFromCg, roll, pitch);
 
             _cgCycle.Update(heaveInstantCg, dt);
-
-            Vec3 rotDegS = rotInputIsDegPerSec
-                ? rateOfTurnBody
-                : new Vec3(RadToDeg(rateOfTurnBody.X), RadToDeg(rateOfTurnBody.Y), RadToDeg(rateOfTurnBody.Z));
 
             output.RollDeg = rollDeg;
             output.PitchDeg = pitchDeg;
@@ -396,7 +460,7 @@ namespace HelideckVer2.Services.Mru
             output.YawRateDegS = rotDegS.Z;
 
             output.VerticalAcceleration = verticalAcc;
-            output.HeaveVelocity = _kalman.Velocity;
+            output.HeaveVelocity = _heaveVelocity;
 
             output.HeaveInstantCg = heaveInstantCg;
             output.HeaveInstantAtSensor = heaveAtSensor;
