@@ -10,6 +10,7 @@ namespace HelideckVer2
     {
         private DataGridView _dgvRaw;
         private System.Windows.Forms.Timer _updateTimer;
+        private static readonly Font _statusFont = new Font("Segoe UI", 9f, FontStyle.Bold);
 
         // HubKey: key dùng để tra cứu trong HelideckDataHub (khác TaskName nếu service dùng key riêng)
         private static readonly Dictionary<string, (string Desc, string Expected, string HubKey)> _taskMeta =
@@ -220,7 +221,7 @@ namespace HelideckVer2
             var snap  = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
             var tasks = ConfigForm.Tasks;
 
-            for (int i = 0; i < _dgvRaw.Rows.Count && i < 5; i++)
+            for (int i = 0; i < _dgvRaw.Rows.Count && i < tasks.Count; i++)
             {
                 string taskName = i < tasks.Count ? tasks[i].TaskName : "-";
                 string portName = i < tasks.Count ? tasks[i].PortName : $"COM{i + 1}";
@@ -264,7 +265,7 @@ namespace HelideckVer2
                 _dgvRaw.Rows[i].DefaultCellStyle.ForeColor = rowFg;
 
                 var statusCell = _dgvRaw.Rows[i].Cells["Status"].Style;
-                statusCell.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+                statusCell.Font = _statusFont;
                 switch (status)
                 {
                     case "OK":

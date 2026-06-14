@@ -746,12 +746,12 @@ namespace HelideckVer2
         private void LoadData()
         {
             _txtShipName.Text = SystemConfig.ShipName ?? "";
-            numWind.Value  = (decimal)SystemConfig.WindMax;
-            numRoll.Value  = (decimal)SystemConfig.RMax;
-            numPitch.Value = (decimal)SystemConfig.PMax;
-            numHeave.Value = (decimal)SystemConfig.HMax;
-            _originalTheme  = SystemConfig.IsLightTheme;
-            _pendingIsLight = SystemConfig.IsLightTheme;
+            numWind.Value     = (decimal)SystemConfig.WindMax;
+            numRoll.Value     = (decimal)SystemConfig.RMax;
+            numPitch.Value    = (decimal)SystemConfig.PMax;
+            numHeave.Value    = (decimal)SystemConfig.HMax;
+            _originalTheme    = SystemConfig.IsLightTheme;
+            _pendingIsLight   = SystemConfig.IsLightTheme;
             UpdateThemeButtons();
 
             dgvComConfig.Rows.Clear();
@@ -821,9 +821,10 @@ namespace HelideckVer2
             saveCfg.Tasks = Tasks;
             HelideckVer2.Services.ConfigService.Save(saveCfg);
 
-            MessageBox.Show(
-                "Configuration saved! COM ports will reconnect automatically.",
-                "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            string saveMsg = "Configuration saved.\n\n"
+                + "✓  Alarm limits, theme, vessel image — applied immediately.\n"
+                + "⚠  COM port / simulation mode changes — restart required to take effect.";
+            MessageBox.Show(saveMsg, "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             this.DialogResult = DialogResult.OK;
             this.Close();

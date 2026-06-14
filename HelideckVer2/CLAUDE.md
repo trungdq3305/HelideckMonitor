@@ -51,14 +51,14 @@ COM Ports (COM1–COM6+)
 | File | Responsibility |
 |------|----------------|
 | **Services/** | |
-| `Services/ComEngine.cs` | Opens all COM ports, watchdog + exponential backoff retry. NMEA ports: `DataReceived` event + `ReadExisting`. METEO/MRU ports: no `DataReceived` — skips inactivity timeout, exposes `GetManagedPort()` for MeteoService/MruService |
+| `Services/ComEngine.cs` | Opens all COM ports, watchdog + exponential backoff retry. NMEA ports: `DataReceived` event + `ReadExisting`. METEO/MRU ports: no `DataReceived` — skips inactivity timeout, exposes `GetManagedPort()` for MeteoService/MruService. MRU port: `DtrEnable=false`, `RtsEnable=false`, `ReadBufferSize=8192`, `ReadTimeout=5000ms` |
 | `Services/Parsing/NmeaParserService.cs` | Validates XOR checksum, dispatches by sentence type, fires typed events. 5 consecutive failures → freeze last known values |
 | `Services/AlarmEngine.cs` | Evaluates all alarms every 100ms |
 | `Services/DataLogger.cs` | Enqueues lines to `ConcurrentQueue`, flushes to CSV every 10s. Auto-deletes logs older than 30 days |
 | `Services/SimulationEngine.cs` | Generates valid NMEA sentences with correct checksums at 100ms intervals |
 | `Services/MeteoService.cs` | Modbus RTU polling (RK330-01) via RS485/COM5 every 2s — temp, humidity, pressure. **Port lifecycle delegated to ComEngine** — MeteoService calls `_comEngine.GetManagedPort("COM5")` each poll; if null (port not yet open) poll silently skips. Simulation mode generates random values |
-| `Services/MruService.cs` | **Sole source of Roll/Pitch/Heave.** Background thread reads `FA FF 36` frames from COM port, parses MTData2 (Euler 0x2030, FreeAcc 0x4030, RoT 0x8020), runs `XsensMruProcessor`, writes Roll/Pitch/Heave(cm) to DataHub slot "R/P/H". Simulation mode generates random drift via `System.Timers.Timer`. Always started (task "MRU" always present in config, default port COM3). **Port lifecycle delegated to ComEngine** via `GetManagedPort()`. |
-| `Services/Mru/XsensMruProcessor.cs` | Algorithm: double-integration of vertical acceleration for heave (2-state Kalman filter + ZUPT), rotation matrix body→earth, heave offset at bow/stern/sensor positions. Classes: `Vec3`, `HeaveKalmanFilter`, `MruOutput`, `XsensMruProcessor`. (`LowPassFilter`/`HighPassFilter` still present in file but no longer used for heave.) |
+| `Services/MruService.cs` | **Sole source of Roll/Pitch/Heave.** Background thread reads `FA FF 36` frames from COM port, parses MTData2 (Euler 0x2030, FreeAcc 0x4030, RoT 0x8020), runs `XsensMruProcessor`, writes Roll/Pitch/Heave(cm) to DataHub slot "R/P/H". On port open: sends GoToConfig up to 3 times with ACK verify (`TryReadGoToConfigAck`), then GoToMeasurement — handles MTi frozen after power cycle. Frame data written to pre-allocated `_frameBuffer[512]` (zero allocation). `ParseFloat` uses `BinaryPrimitives.ReadUInt32BigEndian` (zero allocation). Closes port after 5 consecutive timeouts to force RS-232 line reset. Simulation mode generates random drift via `System.Timers.Timer`. **Port lifecycle delegated to ComEngine** via `GetManagedPort()`. |
+| `Services/Mru/XsensMruProcessor.cs` | Algorithm: double-integration of vertical FreeAcceleration for heave. Pipeline per frame: bias EMA subtraction → deadband → LowPassFilter(2Hz) on acc → integrate → HighPassFilter(0.04Hz) on velocity (removes DC drift). Integration cascade (priority order): 1) `stationary` (lowAcc + lowVelocity) → decay; 2) `lowAcc && quietFrames>50` → gentle velocity bleed; 3) `rotRate>15°/s` → suppress integration (gravity leakage during fast tilts — threshold safe for maritime SS6 ≤8°/s); 4) `badMotion` (acc>5 or rotRate>30) → hold state; 5) else → normal integrate. `_quietFrames` timer distinguishes heave zero-crossing (<1s lowAcc) from sensor truly held still (>1s). Rotation matrix body→earth (roll/pitch/yaw Euler). Classes: `Vec3`, `LowPassFilter`, `HighPassFilter`, `HeaveCycleAnalyzer`, `MruOutput`, `XsensMruProcessor`. |
 | `Services/ConfigService.cs` | Loads `config.json` at startup, applies to `SystemConfig` |
 | `Services/SystemLogger.cs` | Static logger, thread-safe via `lock (_lockObj)` |
 | **Core/** | |
@@ -72,7 +72,7 @@ COM Ports (COM1–COM6+)
 | **UI/** | |
 | `UI/Forms/MainForm.cs` | Owns all timers: 100ms UI update, 1s snapshot log, 1s health check, 100ms chart render. Contains inner class `CardPanel` for theme-aware backgrounds |
 | `UI/Forms/ConfigForm.cs` | 4-tab config UI: Alarm Limits, COM Configuration, Vessel Image (live reload), Alarm History. Live DAY/NIGHT preview with revert-on-cancel |
-| `UI/Forms/DataListForm.cs` | Raw NMEA data display |
+| `UI/Forms/DataListForm.cs` | Live data scanner — shows all 5 tasks (GPS/WIND/HEADING/MRU/METEO) with port, baud, last raw value, age, and OK/LOST/WAIT status. Refreshes every 500ms. MRU maps HubKey "R/P/H" not "MRU". |
 | `UI/Forms/LoginForm.cs` | Login form |
 | `UI/Controls/RadarControl.cs` | GDI+ radar — call `UpdateRadar(heading, windDir)` then `Invalidate()` |
 | `UI/Controls/TrendChartControl.cs` | 20-minute rolling chart — `PushMotionData` / `PushWindData` / `PushEnvData`, then `Render()`. Dual Y-axis for all modes. CursorX disabled — cursor drawn in PostPaint |
@@ -233,11 +233,14 @@ Data flows: `MeteoService.Poll()` → `HelideckDataHub.UpdateMeteoData()` → `_
 | DataID RateOfTurn | `0x8020` — float32 wx, wy, wz (rad/s) |
 | DataID SampleTimeFine | `0x1060` — uint32, hardware clock 10kHz (0.1ms resolution), used for dt |
 | Checksum | sum(BID..CS) & 0xFF == 0; extended-length frames include 0xFF+hi+lo in sum |
-| Byte order | Big-endian (float32 bytes reversed before `BitConverter.ToSingle`) |
+| Byte order | Big-endian — parsed via `BinaryPrimitives.ReadUInt32BigEndian` + `BitConverter.Int32BitsToSingle` (zero allocation) |
 | dt source | SampleTimeFine when available (uint32 rollover-safe subtraction / 10000.0); fallback DateTime.UtcNow |
 | Output | Writes to DataHub "R/P/H" — coexists with NMEA R/P/H task; whichever updates last wins |
 | Heave unit | `HeaveCg` in metres → multiplied ×100 → cm before writing to DataHub |
-| ReadTimeout | 1000ms (set by ComEngine on port open) |
+| ReadTimeout | 5000ms (set by ComEngine on port open — tolerates cable glitches without rapid GoToMeasurement cascade) |
+| ReadBufferSize | 8192 bytes (default 4096 fills in ~355ms at 115200 baud — 8192 gives ~710ms headroom) |
+| Init sequence | `InitDevice()`: GoToConfig (FA FF 30 00 D1) up to 3× with ACK verify → GoToMeasurement (FA FF 10 00 F1) → 800ms settle. Handles MTi frozen after power cycle. |
+| Power-cycle recovery | After 5 consecutive ReadTimeouts: close port → ComEngine watchdog reopens → `InitDevice()` retries GoToConfig. Log: `[MRU] GoToConfig attempt N/3 on COMx (baud=...)` |
 
 **Port lifecycle**: ComEngine opens the MRU port (no `DataReceived` subscription, no 10s inactivity timeout). MruService background thread calls `GetManagedPort()` in a loop; if null, sleeps 500ms and retries. IOException (port closed) → sleeps 200ms → loop retries `GetManagedPort()`.
 
@@ -293,7 +296,9 @@ Edit `SystemConfig` static properties or update `config.json` — limits are `Fu
 |-------|-----|
 | COM port fails to open | Check COM port assignments in `config.json` + Windows Device Manager |
 | Data shows LOST after 2s | Trace checksum failures in `NmeaParserService` (5-fail freeze threshold) |
-| Incorrect heave values | Tune `HeaveKalmanFilter` params in `XsensMruProcessor.cs`: `AccThreshold` (ngưỡng detect đứng yên), `RZupt` (tốc độ về 0 — nhỏ = nhanh hơn), `QPos`/`QVel` (process noise) |
+| Incorrect heave values | Tune params in `XsensMruProcessor.cs` `UpdateEuler()`: deadband `< 0.03` (bỏ nhiễu nhỏ), stationary threshold `rotRate < 0.5 && verticalAcc < 0.08`, velocity threshold `< 0.05 m/s`, decay rates (`* 0.97` velocity / `* 0.99` position). `rotRate > 15.0` branch suppresses integration during fast tilts — lower threshold if maritime roll rates are high (SS6 max ~8°/s). LPF cutoff 2Hz / HPF cutoff 0.04Hz on velocity. |
+| Large heave during sensor handling | Expected — fast tilts (>15°/s roll rate) cause gravity leakage. The `rotRate>15` branch minimises this. For maritime use (sensor fixed to ship), not an issue. |
+| MRU frozen after power cycle | Check Logs for `[MRU] GoToConfig attempt N/3`. If shows `WARNING: no GoToConfig ACK` → device not powered, wrong baud, or RS-232 capacitors not discharged. Power off both PC and sensor completely, wait 30s, reboot. |
 | Crash on startup | Check `Logs/` folder permissions; review 30-day auto-delete logic |
 | Chart jitter on mouse hover | Do NOT re-enable `CursorX.IsUserEnabled` — cursor must stay in PostPaint |
 | Theme not updating a control | Check if it uses `CardPanel` + `Color.Transparent` labels; avoid captured color variables |

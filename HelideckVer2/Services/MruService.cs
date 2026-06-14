@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.IO.Ports;
 using System.Threading;
@@ -41,6 +42,10 @@ namespace HelideckVer2.Services
         // Throttle counters — log on 1st, 5th, then every 30 occurrences
         private int _checksumFailCount;
         private int _timeoutFailCount;
+
+        // Pre-allocated frame buffer: avoids 100 allocs/s from new byte[len] per MTData2 frame.
+        // Max XBus MTData2 payload is 512 bytes (guarded in ProcessPort before ReadExact is called).
+        private readonly byte[] _frameBuffer = new byte[512];
 
         // Debug telemetry — read by MainForm UI
         public double LastAccZ         { get; private set; }
@@ -223,21 +228,80 @@ namespace HelideckVer2.Services
             try { port.Write(frame, 0, frame.Length); } catch { }
         }
 
-        private static void InitDevice(SerialPort port)
+        private void InitDevice(SerialPort port)
         {
-            // GoToConfig first — ensures device is in a known Config state regardless of power-cycle history.
-            // Without this, rapid GoToMeasurement sends can toggle the device Config↔Measurement indefinitely.
-            // FA FF 30 00 D1
-            TrySend(port, [0xFA, 0xFF, 0x30, 0x00, 0xD1]);
-            Thread.Sleep(300);
-            try { port.DiscardInBuffer(); } catch { }
+            // GoToConfig: up to 3 attempts with ACK verification (FA FF 31 00 D0).
+            // After a PC power cycle, RS-232 voltage transients can leave the MTi in a
+            // half-powered frozen state — it may not respond to the first GoToConfig.
+            // Three attempts with 400ms gaps give it up to ~1.5s total to recover.
+            bool ackReceived = false;
+            for (int attempt = 1; attempt <= 3 && _running; attempt++)
+            {
+                try { port.DiscardInBuffer(); } catch { }
+                SystemLogger.LogInfo($"[MRU] GoToConfig attempt {attempt}/3 on {_portName} (baud={port.BaudRate}).");
+                TrySend(port, [0xFA, 0xFF, 0x30, 0x00, 0xD1]);
 
-            // GoToMeasurement — output config already stored in flash (set via MT Manager).
-            // FA FF 10 00 F1
-            SystemLogger.LogInfo($"[MRU] Sending GoToMeasurement on {port.PortName}.");
-            TrySend(port, [0xFA, 0xFF, 0x10, 0x00, 0xF1]);
-            Thread.Sleep(600);  // 600ms: RS-232 needs extra settle time vs USB before first frame
+                if (TryReadGoToConfigAck(port, timeoutMs: 500))
+                {
+                    SystemLogger.LogInfo($"[MRU] GoToConfig ACK received (attempt {attempt}/3) — device in Config mode.");
+                    ackReceived = true;
+                    break;
+                }
+
+                SystemLogger.LogInfo($"[MRU] No GoToConfig ACK (attempt {attempt}/3). " +
+                    (attempt < 3 ? "Device may still be booting. Retrying in 400ms..." : ""));
+                if (attempt < 3) Thread.Sleep(400);
+            }
+
+            if (!ackReceived)
+                SystemLogger.LogInfo($"[MRU] WARNING: no GoToConfig ACK after 3 attempts on {_portName}. " +
+                    $"Possible causes: device not powered | wrong baud rate ({port.BaudRate}) | " +
+                    "RS-232 cable disconnected | device frozen after power cycle. " +
+                    "Sending GoToMeasurement anyway — check Logs for checksum failures.");
+
             try { port.DiscardInBuffer(); } catch { }
+            SystemLogger.LogInfo($"[MRU] Sending GoToMeasurement on {_portName}.");
+            TrySend(port, [0xFA, 0xFF, 0x10, 0x00, 0xF1]);
+            Thread.Sleep(800);  // 800ms: RS-232 needs extra settle time vs USB before first frame
+            try { port.DiscardInBuffer(); } catch { }
+        }
+
+        /// <summary>
+        /// Scans incoming bytes for a GoToConfig ACK frame (FA FF 31 xx xx).
+        /// Returns true when ACK found within timeoutMs, false on timeout or if device returns Error.
+        /// </summary>
+        private bool TryReadGoToConfigAck(SerialPort port, int timeoutMs)
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            int savedTimeout = port.ReadTimeout;
+            port.ReadTimeout = 100; // short per-byte timeout: keeps scanning without long block
+            try
+            {
+                while (DateTime.UtcNow < deadline && _running)
+                {
+                    int b;
+                    try { b = port.ReadByte(); } catch (TimeoutException) { continue; }
+                    if (b != 0xFA) continue;
+                    try
+                    {
+                        if (port.ReadByte() != 0xFF) continue;   // BID
+                        int mid     = port.ReadByte();
+                        int lenByte = port.ReadByte();
+                        // Extended length (0xFF + 2 bytes): guard against unreasonably large skips
+                        int len = lenByte == 0xFF
+                            ? Math.Min((port.ReadByte() << 8) | port.ReadByte(), 512)
+                            : lenByte;
+                        for (int i = 0; i < len; i++) port.ReadByte(); // payload
+                        port.ReadByte();  // checksum
+                        if (mid == 0x31) return true;  // GoToConfig ACK
+                        if (mid == 0x42) SystemLogger.LogInfo($"[MRU] Device returned Error frame during GoToConfig on {_portName}.");
+                    }
+                    catch (TimeoutException) { /* incomplete frame — keep scanning */ }
+                    catch { break; }
+                }
+            }
+            finally { try { port.ReadTimeout = savedTimeout; } catch { } }
+            return false;
         }
 
         private void ProcessPort(SerialPort port)
@@ -280,15 +344,15 @@ namespace HelideckVer2.Services
                 // A larger value means corrupted sync — re-scan for next preamble.
                 if (len > 512) continue;
 
-                // Đọc DATA
-                byte[] data = ReadExact(port, len);
+                // Đọc DATA vào _frameBuffer (reused, zero allocation)
+                ReadExact(port, len);
 
                 // Đọc checksum
                 int cs = port.ReadByte();
 
                 // Xác minh: sum(BID..CS) & 0xFF == 0
                 int sum = Bid + MidMTData2 + lenSum;
-                foreach (byte d in data) sum += d;
+                for (int i = 0; i < len; i++) sum += _frameBuffer[i];
                 sum += cs;
                 if ((sum & 0xFF) != 0)
                 {
@@ -302,8 +366,8 @@ namespace HelideckVer2.Services
                 _checksumFailCount = 0;
                 _timeoutFailCount  = 0;
 
-                // Parse và tính toán
-                ParseAndUpdate(data);
+                // Parse và tính toán (dùng _frameBuffer[0..len-1])
+                ParseAndUpdate(len);
             }
         }
 
@@ -318,18 +382,19 @@ namespace HelideckVer2.Services
         // SampleTimeFine chạy ở 10kHz → 1 tick = 0.1ms
         private const double SampleFineHz = 10000.0;
 
-        private void ParseAndUpdate(byte[] data)
+        private void ParseAndUpdate(int dataLen)
         {
             int pos = 0;
+            byte[] data = _frameBuffer;
             _hasEuler = _hasFreeAcc = _hasRoT = _hasSampleFine = false;
 
-            while (pos + 3 <= data.Length)
+            while (pos + 3 <= dataLen)
             {
                 ushort dataId = (ushort)((data[pos] << 8) | data[pos + 1]);
                 byte itemLen = data[pos + 2];
                 pos += 3;
 
-                if (pos + itemLen > data.Length) break;
+                if (pos + itemLen > dataLen) break;
 
                 switch (dataId)
                 {
@@ -429,24 +494,23 @@ namespace HelideckVer2.Services
         private static bool ShouldLogThrottled(int count) =>
             count == 1 || count == 5 || count % 30 == 0;
 
-        private byte[] ReadExact(SerialPort port, int count)
+        // Reads exactly `count` bytes into _frameBuffer (pre-allocated, zero GC allocation).
+        private void ReadExact(SerialPort port, int count)
         {
-            var buf = new byte[count];
             int read = 0;
             while (read < count && _running)
             {
-                int n = port.Read(buf, read, count - read);
+                int n = port.Read(_frameBuffer, read, count - read);
                 if (n > 0) read += n;
                 // n==0: rare on some RS-232 drivers — retry without sleeping
             }
-            return buf;
         }
 
-        // XBus dùng big-endian IEEE 754 float32
+        // XBus big-endian IEEE 754 float32 — zero allocation via BinaryPrimitives + reinterpret cast.
         private static float ParseFloat(byte[] buf, int offset)
         {
-            var b = new byte[4] { buf[offset + 3], buf[offset + 2], buf[offset + 1], buf[offset + 0] };
-            return BitConverter.ToSingle(b, 0);
+            uint u = BinaryPrimitives.ReadUInt32BigEndian(buf.AsSpan(offset, 4));
+            return BitConverter.Int32BitsToSingle((int)u);
         }
     }
 }

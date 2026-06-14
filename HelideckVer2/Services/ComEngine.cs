@@ -143,13 +143,17 @@ namespace HelideckVer2.Services
                         // RS-232 physical port: disable DTR/RTS.
                         // MTi does not use hardware flow control. When PC powers off, DTR/RTS voltage
                         // transitions disturb the MTi RS-232 interface during its next boot cycle.
-                        sp.DtrEnable  = false;
-                        sp.RtsEnable  = false;
-                        sp.Handshake  = Handshake.None;
+                        sp.DtrEnable      = false;
+                        sp.RtsEnable      = false;
+                        sp.Handshake      = Handshake.None;
+                        // 8192-byte read buffer: at 115200 baud (11520 bytes/s), default 4096 fills
+                        // in ~355ms. If the ReadLoop thread is preempted longer than that, bytes are
+                        // silently dropped by the OS driver. 8192 gives ~710ms headroom.
+                        sp.ReadBufferSize = 8192;
                         // XBus binary: 5000ms ReadTimeout tolerates brief cable glitches without
                         // triggering rapid GoToMeasurement resend cascade.
-                        sp.ReadTimeout  = 5000;
-                        sp.WriteTimeout = 300;
+                        sp.ReadTimeout    = 5000;
+                        sp.WriteTimeout   = 300;
                     }
                     else if (isModbus)
                     {
