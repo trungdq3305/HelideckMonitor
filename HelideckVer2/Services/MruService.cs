@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.IO.Ports;
 using System.Threading;
 using HelideckVer2.Core.Data;
@@ -179,11 +180,33 @@ namespace HelideckVer2.Services
                 }
                 catch (TimeoutException)
                 {
-                    // ReadByte times out when device stops sending — throttle to avoid 1-log-per-second spam
                     _timeoutFailCount++;
                     if (ShouldLogThrottled(_timeoutFailCount))
-                        SystemLogger.LogInfo($"[MRU] {_portName}: read timeout (no data) — count={_timeoutFailCount}. Check baud rate or device mode.");
-                    Thread.Sleep(200);
+                        SystemLogger.LogInfo($"[MRU] {_portName}: read timeout count={_timeoutFailCount}.");
+
+                    // Every 5 consecutive timeouts (~25s): close the port completely.
+                    // Closing forces the RS-232 hardware driver to flush its state and drop DTR/RTS,
+                    // which often unsticks an MTi that stopped responding after a power cycle.
+                    // ComEngine watchdog will reopen the port within 5s.
+                    if (_timeoutFailCount % 5 == 0)
+                    {
+                        SystemLogger.LogInfo($"[MRU] {_portName}: {_timeoutFailCount} consecutive timeouts — closing port for RS-232 line reset.");
+                        try { port.Close(); } catch { }
+                        Thread.Sleep(1000);
+                    }
+                    else
+                    {
+                        Thread.Sleep(200);
+                    }
+                }
+                catch (IOException ex)
+                {
+                    // USB/serial hardware disconnect: SerialPort.IsOpen may stay true even after disconnect.
+                    // Explicitly close so ComEngine watchdog detects isClosed=true and reopens.
+                    try { port.Close(); } catch { }
+                    _timeoutFailCount = 0;
+                    SystemLogger.LogInfo($"[MRU] {_portName}: hardware error ({ex.GetType().Name}) — port closed, waiting for watchdog retry.");
+                    Thread.Sleep(1000);
                 }
                 catch (Exception ex)
                 {
@@ -202,12 +225,18 @@ namespace HelideckVer2.Services
 
         private static void InitDevice(SerialPort port)
         {
-            // GoToMeasurement — device already has correct output config stored in flash (set via MT Manager).
+            // GoToConfig first — ensures device is in a known Config state regardless of power-cycle history.
+            // Without this, rapid GoToMeasurement sends can toggle the device Config↔Measurement indefinitely.
+            // FA FF 30 00 D1
+            TrySend(port, [0xFA, 0xFF, 0x30, 0x00, 0xD1]);
+            Thread.Sleep(300);
+            try { port.DiscardInBuffer(); } catch { }
+
+            // GoToMeasurement — output config already stored in flash (set via MT Manager).
             // FA FF 10 00 F1
             SystemLogger.LogInfo($"[MRU] Sending GoToMeasurement on {port.PortName}.");
             TrySend(port, [0xFA, 0xFF, 0x10, 0x00, 0xF1]);
-            Thread.Sleep(200);
-
+            Thread.Sleep(600);  // 600ms: RS-232 needs extra settle time vs USB before first frame
             try { port.DiscardInBuffer(); } catch { }
         }
 
@@ -400,15 +429,15 @@ namespace HelideckVer2.Services
         private static bool ShouldLogThrottled(int count) =>
             count == 1 || count == 5 || count % 30 == 0;
 
-        private static byte[] ReadExact(SerialPort port, int count)
+        private byte[] ReadExact(SerialPort port, int count)
         {
             var buf = new byte[count];
             int read = 0;
-            while (read < count)
+            while (read < count && _running)
             {
                 int n = port.Read(buf, read, count - read);
-                if (n <= 0) break;
-                read += n;
+                if (n > 0) read += n;
+                // n==0: rare on some RS-232 drivers — retry without sleeping
             }
             return buf;
         }

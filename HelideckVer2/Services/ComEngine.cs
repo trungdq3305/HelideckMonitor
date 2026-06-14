@@ -140,8 +140,15 @@ namespace HelideckVer2.Services
                     };
                     if (task.TaskName == "MRU")
                     {
-                        // XBus binary stream — blocking read in MruService thread
-                        sp.ReadTimeout  = 1000;
+                        // RS-232 physical port: disable DTR/RTS.
+                        // MTi does not use hardware flow control. When PC powers off, DTR/RTS voltage
+                        // transitions disturb the MTi RS-232 interface during its next boot cycle.
+                        sp.DtrEnable  = false;
+                        sp.RtsEnable  = false;
+                        sp.Handshake  = Handshake.None;
+                        // XBus binary: 5000ms ReadTimeout tolerates brief cable glitches without
+                        // triggering rapid GoToMeasurement resend cascade.
+                        sp.ReadTimeout  = 5000;
                         sp.WriteTimeout = 300;
                     }
                     else if (isModbus)
