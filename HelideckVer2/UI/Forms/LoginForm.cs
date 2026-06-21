@@ -14,7 +14,7 @@ namespace HelideckVer2
         public LoginForm()
         {
             InitializeComponent();
-            SetupFastUI(); // Tự vẽ giao diện
+            SetupFastUI();
         }
 
         private void SetupFastUI()
@@ -83,14 +83,10 @@ namespace HelideckVer2
             this.AcceptButton = btnLogin;
         }
 
-        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
-        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            int dark = 1;
-            DwmSetWindowAttribute(this.Handle, 20, ref dark, sizeof(int));
+            Palette.ApplyTitleBarTheme(Handle);
         }
 
         private void BtnLogin_Click(object sender, EventArgs e)
@@ -102,7 +98,7 @@ namespace HelideckVer2
             }
             else
             {
-                MessageBox.Show("Sai mật khẩu! Vui lòng thử lại.", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Incorrect password. Please try again.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 txtPass.SelectAll();
                 txtPass.Focus();
             }

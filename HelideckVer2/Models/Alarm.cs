@@ -30,28 +30,32 @@ namespace HelideckVer2.Models
         }
 
         /// <summary>
-        /// Evaluate condition
-        /// return true nếu Active/Clear đổi
+        /// Evaluate condition with 5% hysteresis deadband.
+        /// Raises when Tag.Value exceeds limit; clears only when value drops below 95% of limit.
+        /// Prevents rapid raise/clear chatter (chattering) when value oscillates near threshold.
+        /// Returns true if the Active/Cleared state changed.
         /// </summary>
         public bool Evaluate()
         {
             bool prevActive = IsActive;
+            double limit = HighLimitProvider();
 
-            if (Tag.Value > HighLimitProvider())
+            if (Tag.Value > limit)
                 IsActive = true;
-            else
+            else if (Tag.Value <= limit * 0.95)
                 IsActive = false;
+            // else: inside hysteresis band — hold current state
 
             if (IsActive && !prevActive)
             {
                 RaisedTime = DateTime.Now;
-                IsAcked = false;   // Alarm mới → chưa ACK
+                IsAcked = false;   // newly raised — clear ACK flag
             }
             else if (!IsActive && prevActive)
             {
                 ClearedTime = DateTime.Now;
 
-                // reset ACK khi clear (để lần sau active là alarm mới)
+                // reset ACK on clear so the next raise is treated as a new alarm
                 IsAcked = false;
                 AckTime = null;
             }

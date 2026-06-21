@@ -8,7 +8,7 @@ namespace HelideckVer2.Services
     /// <summary>
     /// Polls RK330-01 (Temp / Humidity / Pressure) via Modbus RTU over RS-485.
     /// Frame: FC 03, Slave 1, Start 0x0000, Count 3.
-    /// Register mapping: [0]=Temp×100 (°C), [1]=Humidity×100 (%), [2]=Pressure×10 (mbar).
+    /// Register mapping: [0]=Temp×10 (°C), [1]=Humidity×10 (%), [2]=Pressure×10 (mbar).
     /// Port lifecycle (open/close/retry) is delegated to ComEngine — MeteoService only polls.
     /// No NuGet required — CRC-16/IBM implemented inline.
     /// </summary>
@@ -44,7 +44,9 @@ namespace HelideckVer2.Services
 
         public void Start()
         {
-            _timer = new System.Timers.Timer(2000) { AutoReset = true };
+            // AutoReset=false: next poll starts only after current poll completes,
+            // preventing concurrent Modbus requests that corrupt response framing.
+            _timer = new System.Timers.Timer(2000) { AutoReset = false };
             _timer.Elapsed += (s, e) => Poll();
             _timer.Start();
         }
@@ -62,55 +64,64 @@ namespace HelideckVer2.Services
 
         private void Poll()
         {
-            if (SystemConfig.IsSimulationMode)
-            {
-                PollSimulated();
-                return;
-            }
-
-            // Borrow the port that ComEngine is managing — null means port is not yet open
-            SerialPort port = _comEngine?.GetManagedPort(_portName);
-            if (port == null || !port.IsOpen) return;
-
             try
             {
-                byte[] req = BuildRequest(slaveId: 1, startAddr: 0x0000, count: 3);
-                port.DiscardInBuffer();
-                port.Write(req, 0, req.Length);
-
-                // Expected response: SlaveID(1) + FC(1) + ByteCount(1) + Data(6) + CRC(2) = 11 bytes
-                byte[] resp = ReadExact(port, 11);
-                if (!ValidateResponse(resp, slaveId: 1, fc: 0x03, dataBytes: 6))
+                if (SystemConfig.IsSimulationMode)
                 {
-                    _badResponseCount++;
-                    if (ShouldLogThrottled(_badResponseCount))
-                        SystemLogger.LogInfo($"[METEO] {_portName}: invalid Modbus response count={_badResponseCount}. Check slave ID, wiring, RS-485 polarity.");
+                    PollSimulated();
                     return;
                 }
 
-                double temp     = ((resp[3] << 8) | resp[4]) / 10.0;
-                double humidity = ((resp[5] << 8) | resp[6]) / 10.0;
-                double pressure = ((resp[7] << 8) | resp[8]) / 10.0;
+                // Borrow the port that ComEngine is managing — null means port is not yet open
+                SerialPort port = _comEngine?.GetManagedPort(_portName);
+                if (port == null || !port.IsOpen) return;
 
-                // Reset error counters and log first successful poll
-                _pollExceptionCount = 0;
-                _badResponseCount   = 0;
-                if (!_firstPollLogged)
+                try
                 {
-                    SystemLogger.LogInfo($"[METEO] {_portName}: first successful poll — T={temp:0.0}°C RH={humidity:0.0}% P={pressure:0.0}mbar");
-                    _firstPollLogged = true;
-                }
+                    byte[] req = BuildRequest(slaveId: 1, startAddr: 0x0000, count: 3);
+                    port.DiscardInBuffer();
+                    port.Write(req, 0, req.Length);
 
-                HelideckDataHub.Instance.UpdateMeteoData(temp, humidity, pressure);
-                HelideckDataHub.Instance.UpdateRawString("METEO",
-                    $"T={temp:0.00}°C  RH={humidity:0.00}%  P={pressure:0.0}mbar");
+                    // Expected response: SlaveID(1) + FC(1) + ByteCount(1) + Data(6) + CRC(2) = 11 bytes
+                    byte[] resp = ReadExact(port, 11);
+                    if (!ValidateResponse(resp, slaveId: 1, fc: 0x03, dataBytes: 6))
+                    {
+                        _badResponseCount++;
+                        if (ShouldLogThrottled(_badResponseCount))
+                            SystemLogger.LogInfo($"[METEO] {_portName}: invalid Modbus response count={_badResponseCount}. Check slave ID, wiring, RS-485 polarity.");
+                        return;
+                    }
+
+                    // Cast to short for correct signed decode — sub-zero temps use two's complement
+                    double temp     = (short)((resp[3] << 8) | resp[4]) / 10.0;
+                    double humidity = ((resp[5] << 8) | resp[6]) / 10.0;
+                    double pressure = ((resp[7] << 8) | resp[8]) / 10.0;
+
+                    // Reset error counters and log first successful poll
+                    _pollExceptionCount = 0;
+                    _badResponseCount   = 0;
+                    if (!_firstPollLogged)
+                    {
+                        SystemLogger.LogInfo($"[METEO] {_portName}: first successful poll — T={temp:0.0}°C RH={humidity:0.0}% P={pressure:0.0}mbar");
+                        _firstPollLogged = true;
+                    }
+
+                    HelideckDataHub.Instance.UpdateMeteoData(temp, humidity, pressure);
+                    HelideckDataHub.Instance.UpdateRawString("METEO",
+                        $"T={temp:0.00}°C  RH={humidity:0.00}%  P={pressure:0.0}mbar");
+                }
+                catch (Exception ex)
+                {
+                    // Port may have disconnected — ComEngine watchdog will detect and reopen it
+                    _pollExceptionCount++;
+                    if (ShouldLogThrottled(_pollExceptionCount))
+                        SystemLogger.LogInfo($"[METEO] {_portName}: poll exception count={_pollExceptionCount} — {ex.GetType().Name}: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                // Port may have disconnected — ComEngine watchdog will detect and reopen it
-                _pollExceptionCount++;
-                if (ShouldLogThrottled(_pollExceptionCount))
-                    SystemLogger.LogInfo($"[METEO] {_portName}: poll exception count={_pollExceptionCount} — {ex.GetType().Name}: {ex.Message}");
+                // Restart timer after poll completes (AutoReset=false) to ensure sequential non-overlapping polls
+                try { _timer?.Start(); } catch { }
             }
         }
 

@@ -1,10 +1,78 @@
 using System.Drawing;
+using System.Runtime.InteropServices;
 
 namespace HelideckVer2.UI.Theme
 {
     public static class Palette
     {
         public static bool IsLight { get; set; } = false;
+
+        // Apply dark/light title bar chrome via DWM — Windows 10 2004+ / Windows 11.
+        // Must be called after the window handle is created (OnHandleCreated or later).
+        // Safe to call multiple times; silently ignored on unsupported Windows builds.
+        public static void ApplyTitleBarTheme(System.IntPtr hwnd)
+        {
+            int useDark = IsLight ? 0 : 1;
+            try { DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, ref useDark, 4); } catch { }
+        }
+
+        [DllImport("dwmapi.dll", PreserveSig = false)]
+        private static extern void DwmSetWindowAttribute(System.IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        // Built by MainForm.ApplyTheme() each time the theme is switched (old→new color pairs).
+        // Other open forms (ConfigForm, DataListForm) read this to apply the same swap without
+        // needing to re-snapshot the palette themselves.
+        public static System.Collections.Generic.Dictionary<Color, Color> CurrentSwapMap { get; set; }
+
+        // Walk every control in root and swap BackColor / ForeColor / FlatAppearance border
+        // using the map built by MainForm. Skips controls whose color is not in the map.
+        public static void ApplyToForm(System.Windows.Forms.Control root)
+        {
+            if (CurrentSwapMap == null) return;
+            root.SuspendLayout();
+            ApplySwapMap(root, CurrentSwapMap);
+            root.ResumeLayout(false);
+        }
+
+        private static void ApplySwapMap(System.Windows.Forms.Control root,
+            System.Collections.Generic.Dictionary<Color, Color> map)
+        {
+            foreach (System.Windows.Forms.Control c in root.Controls)
+            {
+                if (map.TryGetValue(c.BackColor, out Color nb)) c.BackColor = nb;
+                if (map.TryGetValue(c.ForeColor, out Color nf)) c.ForeColor = nf;
+                if (c is System.Windows.Forms.Button btn &&
+                    map.TryGetValue(btn.FlatAppearance.BorderColor, out Color nbdr))
+                    btn.FlatAppearance.BorderColor = nbdr;
+                if (c is System.Windows.Forms.DataGridView dgv)
+                    ApplyDgvTheme(dgv, map);
+                if (c.Controls.Count > 0)
+                    ApplySwapMap(c, map);
+            }
+        }
+
+        private static void ApplyDgvTheme(System.Windows.Forms.DataGridView dgv,
+            System.Collections.Generic.Dictionary<Color, Color> map)
+        {
+            if (map.TryGetValue(dgv.BackgroundColor, out Color dbg)) dgv.BackgroundColor = dbg;
+            if (map.TryGetValue(dgv.GridColor,       out Color dgc)) dgv.GridColor       = dgc;
+            ApplyDgvCellStyle(dgv.ColumnHeadersDefaultCellStyle, map);
+            ApplyDgvCellStyle(dgv.DefaultCellStyle, map);
+            foreach (System.Windows.Forms.DataGridViewColumn col in dgv.Columns)
+                ApplyDgvCellStyle(col.DefaultCellStyle, map);
+            foreach (System.Windows.Forms.DataGridViewRow row in dgv.Rows)
+                ApplyDgvCellStyle(row.DefaultCellStyle, map);
+        }
+
+        private static void ApplyDgvCellStyle(
+            System.Windows.Forms.DataGridViewCellStyle style,
+            System.Collections.Generic.Dictionary<Color, Color> map)
+        {
+            if (map.TryGetValue(style.BackColor,          out Color nb))  style.BackColor          = nb;
+            if (map.TryGetValue(style.ForeColor,          out Color nf))  style.ForeColor          = nf;
+            if (map.TryGetValue(style.SelectionBackColor, out Color nsb)) style.SelectionBackColor = nsb;
+            if (map.TryGetValue(style.SelectionForeColor, out Color nsf)) style.SelectionForeColor = nsf;
+        }
 
         // ── BACKGROUNDS ──────────────────────────────────────────────────────
         // Dark: tầng rõ ràng AppBg < PanelBg < CardBg (bước ~8-14 mỗi tầng)

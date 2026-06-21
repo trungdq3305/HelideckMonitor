@@ -235,6 +235,19 @@ namespace HelideckVer2.Services.Mru
         public bool Valid;
         public bool HeaveCycleValid;
         public string Status = "INIT";
+
+        // Debug snapshot — intermediate values from UpdateEuler, written to heave_debug CSV
+        public double DbgDt;
+        public double DbgFreeAccX, DbgFreeAccY, DbgFreeAccZ;
+        public double DbgVerticalAcc;
+        public double DbgAccBias;
+        public double DbgAccAfterBias;
+        public double DbgAccAfterDeadband;
+        public double DbgAccAfterHpf;
+        public double DbgAccAfterLpf;
+        public double DbgRotRate;
+        public bool   DbgStationary;
+        public bool   DbgBadMotion;
     }
 
     /// <summary>
@@ -372,12 +385,21 @@ namespace HelideckVer2.Services.Mru
                 return output;
             }
 
+            // Plausibility: helideck sensor cannot exceed ±90° roll/pitch — larger values
+            // indicate a faulty or misconfigured sensor, not a real ship motion.
+            if (Math.Abs(rollDeg) > 90.0 || Math.Abs(pitchDeg) > 90.0)
+            {
+                output.Valid = false;
+                output.Status = "SENSOR_FAULT_RPY";
+                return output;
+            }
+
             double roll = DegToRad(rollDeg);
             double pitch = DegToRad(pitchDeg);
             double yaw = DegToRad(yawDeg);
 
             Vec3 accEarth = RotateBodyToEarth(freeAccBody, roll, pitch, yaw);
-            double verticalAcc = accEarth.Z;  // Z-axis: up = positive
+            double verticalAcc = accEarth.Z;
 
             if (Math.Abs(verticalAcc) > MaxVerticalAcceleration)
             {
@@ -414,33 +436,35 @@ namespace HelideckVer2.Services.Mru
             // badMotion: only reject extreme mechanical spikes
             bool badMotion = absAcc > 5.0 || rotRate > 30.0;
 
+            double accAfterDeadband = acc;
+            double dbgAccAfterHpf = 0;
+            double dbgAccAfterLpf = 0;
+
             if (stationary)
             {
-                // Soft decay to zero
-                _heaveVelocity *= 0.85;
-                _heave         *= 0.95;
-                if (Math.Abs(_heaveVelocity) < 0.003) _heaveVelocity = 0;
-                if (Math.Abs(_heave)         < 0.003) _heave         = 0;
+                // Zero velocity immediately — prevents decel overshoot from pulling heave negative
+                _heaveVelocity = 0;
+                _heave *= Math.Exp(-dt / 2.0);    // τ = 2 s → ~0 in ~6 s
+                if (Math.Abs(_heave) < 0.0005) _heave = 0;
             }
             else if (badMotion)
             {
                 // Mechanical spike: hold, don't integrate
                 _heaveVelocity *= 0.98;
-                _heave         *= 0.995;
+                _heave *= 0.995;
             }
             else
             {
-                // HPF removes DC drift; LPF removes noise above heave band
-                acc = _accHighPass.Update(acc, dt);
+                // DC drift handled by bias EMA above; LPF removes high-freq noise
                 acc = _accLowPass.Update(acc, dt);
+                dbgAccAfterLpf = acc;
 
                 _heaveVelocity += acc * dt;
-                // No damping during active motion — damping only via stationary decay
-                _heaveVelocity  = Math.Max(-5.0, Math.Min(5.0, _heaveVelocity));
-                _heave         += _heaveVelocity * dt;
+                _heaveVelocity = Math.Max(-5.0, Math.Min(5.0, _heaveVelocity));
+                _heave += _heaveVelocity * dt;
             }
 
-            // Use integrated position directly — drift is handled by bias EMA + stationary decay + acc HPF
+            // Use integrated position directly — drift is handled by bias EMA + stationary decay
             // Removing HPF on position to eliminate undershoot/sign-change artifact
             double heaveInstantCg = Math.Max(-5.0, Math.Min(5.0, _heave));
             // ─────────────────────────────────────────────────────────────────
@@ -478,6 +502,20 @@ namespace HelideckVer2.Services.Mru
             output.HeaveCycleValid = _cgCycle.CycleValid;
             output.Valid = true;
             output.Status = _cgCycle.Status;
+
+            output.DbgDt               = dt;
+            output.DbgFreeAccX         = freeAccBody.X;
+            output.DbgFreeAccY         = freeAccBody.Y;
+            output.DbgFreeAccZ         = freeAccBody.Z;
+            output.DbgVerticalAcc      = verticalAcc;
+            output.DbgAccBias          = _accBias;
+            output.DbgAccAfterBias     = verticalAcc - _accBias;
+            output.DbgAccAfterDeadband = accAfterDeadband;
+            output.DbgAccAfterHpf      = dbgAccAfterHpf;
+            output.DbgAccAfterLpf      = dbgAccAfterLpf;
+            output.DbgRotRate          = rotRate;
+            output.DbgStationary       = stationary;
+            output.DbgBadMotion        = badMotion;
 
             return output;
         }

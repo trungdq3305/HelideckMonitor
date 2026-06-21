@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using HelideckVer2.Models;
 using HelideckVer2.UI.Theme;
 
 namespace HelideckVer2
@@ -23,14 +24,10 @@ namespace HelideckVer2
             ["METEO"]   = ("Meteorological: Temp / Humidity / Pressure", "MODBUS-RTU  FC03  Slave1","METEO"),
         };
 
-        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
-        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            int dark = 1;
-            DwmSetWindowAttribute(this.Handle, 20, ref dark, sizeof(int));
+            Palette.ApplyTitleBarTheme(Handle);
         }
 
         public DataListForm()
@@ -43,6 +40,20 @@ namespace HelideckVer2
             _updateTimer.Start();
 
             RefreshData(null, null);
+
+            SystemConfig.ThemeChanged += OnThemeChanged;
+            this.FormClosed += (s, e) =>
+            {
+                SystemConfig.ThemeChanged -= OnThemeChanged;
+                _updateTimer?.Stop();
+            };
+        }
+
+        private void OnThemeChanged()
+        {
+            if (!IsHandleCreated) return;
+            Palette.ApplyToForm(this);
+            Palette.ApplyTitleBarTheme(Handle);
         }
 
         private void BuildUI()

@@ -55,13 +55,19 @@ namespace HelideckVer2.Services
         {
             if (_isDisposed || _currentTasks == null) return;
 
+            // Two-phase open to avoid deadlock:
+            // SerialPort.Open() is a blocking OS call that can stall for several seconds
+            // on faulted hardware. Holding _portLock during Open() blocks GetManagedPort(),
+            // which is called from MruService and MeteoService background threads → deadlock.
+            // Fix: collect ports to open inside the lock (cheap), then open outside the lock.
+            var portsToOpen = new List<(DeviceTask task, SerialPort port)>();
+
             lock (_portLock)
             {
                 foreach (var task in _currentTasks)
                 {
                     if (string.IsNullOrEmpty(task.PortName)) continue;
 
-                    // Backoff: chưa đến lúc retry → bỏ qua
                     if (_nextRetry.TryGetValue(task.PortName, out DateTime retryAt) && DateTime.Now < retryAt)
                         continue;
 
@@ -70,7 +76,6 @@ namespace HelideckVer2.Services
                     bool isModbus  = task.TaskName == "METEO" || task.TaskName == "MRU";
                     bool isTimeout = false;
 
-                    // Modbus ports don't stream data — skip inactivity timeout
                     if (!isModbus && !isMissing && _managedPorts[task.PortName].IsOpen &&
                         _lastDataTime.TryGetValue(task.PortName, out DateTime last))
                     {
@@ -82,10 +87,8 @@ namespace HelideckVer2.Services
                         if (isTimeout)
                             try { _managedPorts[task.PortName].Close(); } catch { }
 
-                        // Log một lần khi bắt đầu offline — chỉ khi port đã từng mở thành công
-                        // (tránh spam log cho các port chưa bao giờ kết nối)
-                        bool alreadyOffline  = _isOffline.TryGetValue(task.PortName, out bool o) && o;
-                        bool wasEverOpen     = _everOpened.TryGetValue(task.PortName, out bool ev) && ev;
+                        bool alreadyOffline = _isOffline.TryGetValue(task.PortName, out bool o) && o;
+                        bool wasEverOpen    = _everOpened.TryGetValue(task.PortName, out bool ev) && ev;
                         if (!alreadyOffline && (wasEverOpen || isTimeout))
                         {
                             string reason = isTimeout ? "no data received" : "port unavailable";
@@ -93,15 +96,22 @@ namespace HelideckVer2.Services
                         }
                         _isOffline[task.PortName] = true;
 
-                        // Tính backoff cho lần retry tiếp theo
                         int count = _retryCount.TryGetValue(task.PortName, out int rc) ? rc : 0;
                         _retryCount[task.PortName] = count + 1;
                         _nextRetry[task.PortName]  = DateTime.Now.AddSeconds(BackoffSec[Math.Min(count, BackoffSec.Length - 1)]);
 
-                        TryOpenPort(task);
+                        // Build SerialPort (cheap, no IO) inside lock; defer Open() to outside
+                        if (!_managedPorts.ContainsKey(task.PortName))
+                            _managedPorts[task.PortName] = BuildSerialPort(task);
+
+                        portsToOpen.Add((task, _managedPorts[task.PortName]));
                     }
                 }
             }
+
+            // Open ports outside lock — blocking Open() must not hold _portLock
+            foreach (var (task, sp) in portsToOpen)
+                TryOpenPort(task, sp);
         }
 
         /// <summary>
@@ -118,76 +128,61 @@ namespace HelideckVer2.Services
             }
         }
 
-        private void TryOpenPort(DeviceTask task)
+        private SerialPort BuildSerialPort(DeviceTask task)
         {
             bool isModbus = task.TaskName == "METEO" || task.TaskName == "MRU";
+            int baud = task.BaudRate > 0 ? task.BaudRate : 9600;
+            var sp = new SerialPort
+            {
+                PortName               = task.PortName,
+                BaudRate               = baud,
+                Parity                 = Parity.None,
+                DataBits               = 8,
+                StopBits               = StopBits.One,
+                DtrEnable              = true,
+                RtsEnable              = true,
+                ReceivedBytesThreshold = 1
+            };
+            if (task.TaskName == "MRU")
+            {
+                sp.DtrEnable      = false;
+                sp.RtsEnable      = false;
+                sp.Handshake      = Handshake.None;
+                sp.ReadBufferSize = 8192;
+                sp.ReadTimeout    = 5000;
+                sp.WriteTimeout   = 300;
+            }
+            else if (isModbus)
+            {
+                sp.ReadTimeout  = 600;
+                sp.WriteTimeout = 300;
+            }
+            else
+            {
+                sp.DataReceived += OnSerialDataReceived;
+            }
+            return sp;
+        }
 
+        // Called outside _portLock — port.Open() can block for seconds on faulted hardware.
+        private void TryOpenPort(DeviceTask task, SerialPort port)
+        {
             try
             {
-                if (!_managedPorts.ContainsKey(task.PortName))
-                {
-                    int baud = task.BaudRate > 0 ? task.BaudRate : 9600;
-                    var sp = new SerialPort
-                    {
-                        PortName               = task.PortName,
-                        BaudRate               = baud,
-                        Parity                 = Parity.None,
-                        DataBits               = 8,
-                        StopBits               = StopBits.One,
-                        DtrEnable              = true,
-                        RtsEnable              = true,
-                        ReceivedBytesThreshold = 1
-                    };
-                    if (task.TaskName == "MRU")
-                    {
-                        // RS-232 physical port: disable DTR/RTS.
-                        // MTi does not use hardware flow control. When PC powers off, DTR/RTS voltage
-                        // transitions disturb the MTi RS-232 interface during its next boot cycle.
-                        sp.DtrEnable      = false;
-                        sp.RtsEnable      = false;
-                        sp.Handshake      = Handshake.None;
-                        // 8192-byte read buffer: at 115200 baud (11520 bytes/s), default 4096 fills
-                        // in ~355ms. If the ReadLoop thread is preempted longer than that, bytes are
-                        // silently dropped by the OS driver. 8192 gives ~710ms headroom.
-                        sp.ReadBufferSize = 8192;
-                        // XBus binary: 5000ms ReadTimeout tolerates brief cable glitches without
-                        // triggering rapid GoToMeasurement resend cascade.
-                        sp.ReadTimeout    = 5000;
-                        sp.WriteTimeout   = 300;
-                    }
-                    else if (isModbus)
-                    {
-                        // Modbus RTU: synchronous request-response — no DataReceived event needed
-                        sp.ReadTimeout  = 600;
-                        sp.WriteTimeout = 300;
-                    }
-                    else
-                    {
-                        sp.DataReceived += OnSerialDataReceived;
-                    }
-                    _managedPorts[task.PortName] = sp;
-                }
+                if (port.IsOpen) return;
+                port.Open();
+                port.DiscardInBuffer();
+                _lastDataTime[task.PortName] = DateTime.Now;
 
-                var port = _managedPorts[task.PortName];
-                if (!port.IsOpen)
+                bool isFirstOpen = !_everOpened.TryGetValue(task.PortName, out bool ev) || !ev;
+                if (isFirstOpen)
                 {
-                    port.Open();
-                    port.DiscardInBuffer();
-                    _lastDataTime[task.PortName] = DateTime.Now;
-
-                    // Log "Connected" chỉ lần đầu tiên mở thành công
-                    bool isFirstOpen = !_everOpened.TryGetValue(task.PortName, out bool ev) || !ev;
-                    if (isFirstOpen)
-                    {
-                        SystemLogger.LogInfo($"[COM] Connected {task.PortName} @ {port.BaudRate} baud ({task.TaskName})");
-                        _everOpened[task.PortName] = true;
-                    }
-                    // Nếu đang ở trạng thái offline: không log "Reconnected" ngay — chờ data thực sự về
+                    SystemLogger.LogInfo($"[COM] Connected {task.PortName} @ {port.BaudRate} baud ({task.TaskName})");
+                    _everOpened[task.PortName] = true;
                 }
             }
             catch (Exception ex)
             {
-                // Đã log offline ở WatchdogCheck — chỉ log exception nếu chưa log lần nào
                 bool alreadyOffline = _isOffline.TryGetValue(task.PortName, out bool o) && o;
                 if (!alreadyOffline)
                     SystemLogger.LogError($"[COM] Cannot open {task.PortName} ({task.TaskName})", ex);

@@ -28,7 +28,7 @@ namespace HelideckVer2.Models
         public static string AdminPassword { get; set; } = "123456";
         public static string ShipName { get; set; } = "FSO 01 - HELIDECK";
 
-        // Các giới hạn báo động (Alarm Limits)
+        // Alarm limits
         public static double WindMax { get; set; } = 40.0;
         public static double RMax { get; set; } = 2.0;
         public static double PMax { get; set; } = 3.0;

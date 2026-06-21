@@ -26,5 +26,17 @@ namespace HelideckVer2.Models
         public double PMax { get; set; } = 3.0;
         public double HMax { get; set; } = 200.0;
 
+        /// <summary>
+        /// Clamps alarm limits to sensible minimums so a corrupt or manually-edited
+        /// config.json cannot cause permanent false alarms (limit ≤ 0) or a dead alarm
+        /// that never triggers (negative limit).
+        /// </summary>
+        public void Validate()
+        {
+            WindMax = Math.Max(WindMax, 1.0);
+            RMax    = Math.Max(RMax,    0.1);
+            PMax    = Math.Max(PMax,    0.1);
+            HMax    = Math.Max(HMax,    1.0);
+        }
     }
 }

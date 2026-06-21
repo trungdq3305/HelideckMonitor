@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Application = System.Windows.Forms.Application;
@@ -63,9 +64,14 @@ namespace HelideckVer2
         private Label[] _unitLabels = new Label[12];
 
         // ── HEAVE MIN/MAX ROLLING WINDOW ─────────────────────────────────────
-        private const double HeaveMinMaxWindowSec = 60.0; // thay đổi tại đây để điều chỉnh cửa sổ thời gian
+        private const double HeaveMinMaxWindowSec = 60.0;
         private readonly Queue<(DateTime ts, double val)> _heaveHistory = new Queue<(DateTime ts, double val)>();
         private Label _lblHeaveMax, _lblHeaveMin;
+
+        // ── APPLICATION WATCHDOG ──────────────────────────────────────────────
+        // Tracks last UI timer heartbeat. Background watchdog exits the process
+        // if the UI thread freezes for >15s (silent hang detection).
+        private long _lastUiTickTicks = DateTime.Now.Ticks;
 
         private HelideckVer2.UI.Controls.TrendChartControl _trendControl;
 
@@ -166,6 +172,7 @@ namespace HelideckVer2
             };
 
             StartDataPipeline();
+            Task.Run(CheckNtpSync);
 
             // Alarm Engine
             _alarmEngine = new AlarmEngine();
@@ -185,6 +192,24 @@ namespace HelideckVer2
 
             RefreshAlarmBanner();
             StartHealthTimer();
+
+            // Application-level watchdog: if the UI timer stops firing for >15s the process is
+            // unrecoverable — force exit so the OS/supervisor can restart the application.
+            var watchdogThread = new Thread(() =>
+            {
+                while (true)
+                {
+                    Thread.Sleep(5000);
+                    double ageSec = (DateTime.Now.Ticks - Interlocked.Read(ref _lastUiTickTicks))
+                                    / (double)TimeSpan.TicksPerSecond;
+                    if (ageSec > 15.0)
+                    {
+                        SystemLogger.LogInfo($"[Watchdog] UI timer frozen for {ageSec:0}s — restarting application.");
+                        Program.RestartApp(); // starts new instance before exiting
+                    }
+                }
+            }) { IsBackground = true, Name = "AppWatchdog" };
+            watchdogThread.Start();
 
             // Trend chart
             _trendControl = new HelideckVer2.UI.Controls.TrendChartControl { Dock = DockStyle.Fill };
@@ -220,6 +245,9 @@ namespace HelideckVer2
                 if (!map.ContainsKey(oldC[i]))
                     map[oldC[i]] = newC[i];
 
+            // Store map so other open forms (ConfigForm, DataListForm) can apply the same swap
+            Palette.CurrentSwapMap = map;
+
             this.SuspendLayout();
             SwapControlColors(this, map);
 
@@ -236,6 +264,9 @@ namespace HelideckVer2
             _trendControl?.SetMode(_currentTrendMode, _isSeparateTrend);
 
             RefreshTrendButtonColors();
+
+            // Sync title bar chrome with the new theme
+            Palette.ApplyTitleBarTheme(Handle);
 
             // Force repaint on GDI+ custom controls
             _radarControl?.Invalidate();
@@ -636,18 +667,17 @@ namespace HelideckVer2
         private void HandleWind(double wSpeed, double wDir)
         {
             HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("WIND", wSpeed, wDir);
-            _windTag.Update(wSpeed);
+            // Tag.Update() is intentionally NOT called here (ThreadPool thread).
+            // All alarm tags are updated exclusively from UiUpdateTimer_Tick (UI thread)
+            // to avoid a data race on Tag.Value.
         }
 
         private void HandleMotion(double r, double p, double h)
         {
             double roll  = r + _rollOffset;
             double pitch = p + _pitchOffset;
-            _rawHeaveCm  = h;
             HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateNumericData("R/P/H", roll, pitch, h);
-            _rollTag.Update(Math.Abs(roll));
-            _pitchTag.Update(Math.Abs(pitch));
-            _heaveTag.Update(Math.Abs(h));
+            // Tag.Update() is intentionally NOT called here — see HandleWind comment.
         }
 
         private void HandlePosition(string fLat, string fLon)
@@ -662,6 +692,45 @@ namespace HelideckVer2
         {
             _speedKnot = k;
             HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateGpsData(k, _currentLat, _currentLon);
+        }
+
+        // ── NTP SYNC CHECK ────────────────────────────────────────────────────
+
+        private static void CheckNtpSync()
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("w32tm", "/query /status")
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute        = false,
+                    CreateNoWindow         = true
+                };
+                using var proc = System.Diagnostics.Process.Start(psi);
+                string output = proc.StandardOutput.ReadToEnd();
+                proc.WaitForExit(3000);
+
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    output, @"Last Successful Sync Time:\s*(.+)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                if (match.Success && DateTime.TryParse(match.Groups[1].Value.Trim(), out DateTime lastSync))
+                {
+                    double hours = (DateTime.Now - lastSync).TotalHours;
+                    if (hours > 24.0)
+                        SystemLogger.LogInfo($"[NTP] WARNING: Clock last synced {hours:0.0}h ago — log timestamps may drift. Run: w32tm /resync");
+                    else
+                        SystemLogger.LogInfo($"[NTP] Clock synced {hours:0.1}h ago — OK.");
+                }
+                else
+                {
+                    SystemLogger.LogInfo("[NTP] WARNING: Cannot determine last NTP sync time — log timestamps may be inaccurate.");
+                }
+            }
+            catch (Exception ex)
+            {
+                SystemLogger.LogInfo($"[NTP] Clock sync check failed: {ex.Message}");
+            }
         }
 
         // ── COM DATA RECEIVED ─────────────────────────────────────────────────
@@ -731,11 +800,19 @@ namespace HelideckVer2
 
         private void UiUpdateTimer_Tick(object sender, EventArgs e)
         {
-            // 1. Đánh giá alarm
-            _alarmEngine.Evaluate();
+            // Heartbeat for application watchdog
+            Interlocked.Exchange(ref _lastUiTickTicks, DateTime.Now.Ticks);
 
-            // 2. Snapshot
+            // 1. Snapshot + update alarm tags BEFORE Evaluate so alarms see current data
             var snap = HelideckVer2.Core.Data.HelideckDataHub.Instance.GetSnapshot();
+            _windTag.Update(snap.WindSpeedMs);
+            _rollTag.Update(Math.Abs(snap.RollDeg));
+            _pitchTag.Update(Math.Abs(snap.PitchDeg));
+            _heaveTag.Update(Math.Abs(snap.HeaveCm));
+            _rawHeaveCm = snap.HeaveCm;
+
+            // 2. Đánh giá alarm với data hiện tại
+            _alarmEngine.Evaluate();
 
             // 3. Đẩy vào trend chart
             _trendControl.PushMotionData(snap.RollDeg, snap.PitchDeg, snap.HeaveCm);
@@ -766,11 +843,6 @@ namespace HelideckVer2
                 _lblHeaveMin.Text = $"▼{hMin:+0.0;-0.0;0.0}";
             }
 
-            // Alarm tags dùng giá trị tuyệt đối vì giới hạn là dương
-            _rollTag.Update(Math.Abs(snap.RollDeg));
-            _pitchTag.Update(Math.Abs(snap.PitchDeg));
-            _heaveTag.Update(Math.Abs(snap.HeaveCm));
-            _rawHeaveCm = snap.HeaveCm;  // có dấu — dùng để tính zero-crossing chu kỳ heave
             lblSpeed.Text      = $"{snap.GpsSpeedKnot:0.0}";
 
             if (snap.GpsLat == "NO FIX")
@@ -804,7 +876,7 @@ namespace HelideckVer2
                 if (_lastZeroCrossTime.HasValue)
                 {
                     double sec = (now - _lastZeroCrossTime.Value).TotalSeconds;
-                    if (sec >= 1.0 && sec <= 60.0)
+                    if (sec >= 1.0 && sec <= 30.0)
                         HelideckVer2.Core.Data.HelideckDataHub.Instance.UpdateHeavePeriod(sec);
                 }
                 _lastZeroCrossTime = now;
@@ -878,6 +950,7 @@ namespace HelideckVer2
             RefreshAlarmBanner();
             SetAlarmRow(a.Id, "Active");
             _logger.LogAlarmEvent("RAISED", a.Id, a.State.ToString(), a.Tag.Value, a.HighLimitProvider());
+
         }
         private void OnAlarmCleared(Alarm a)
         {
@@ -1124,6 +1197,7 @@ namespace HelideckVer2
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
+            Palette.ApplyTitleBarTheme(Handle);
             this.DoubleBuffered = true;
             EnableDoubleBuffer(tableLayoutPanel1);
             EnableDoubleBuffer(tableLayoutPanel2);

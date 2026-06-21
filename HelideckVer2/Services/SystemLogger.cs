@@ -15,22 +15,14 @@ namespace HelideckVer2.Services
         {
             try
             {
-                lock (_lockObj) // Đảm bảo không bị đụng độ luồng khi nhiều chỗ cùng văng lỗi
+                lock (_lockObj)
                 {
-                    // Giới hạn kích thước file log dưới 5MB để không làm đầy ổ cứng
-                    if (File.Exists(_logFilePath) && new FileInfo(_logFilePath).Length > 5 * 1024 * 1024)
-                    {
-                        File.Delete(_logFilePath); // Xóa file cũ nếu quá lớn
-                    }
-
+                    CheckRotate();
                     string errorMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [ERROR] [{context}] - {ex.Message}\nStackTrace: {ex.StackTrace}\n" + new string('-', 50) + "\n";
                     File.AppendAllText(_logFilePath, errorMessage);
                 }
             }
-            catch
-            {
-                // Nếu chính hàm ghi lỗi cũng bị lỗi (ví dụ: ổ cứng hỏng vật lý), thì đành chịu, không throw thêm để tránh sập app.
-            }
+            catch { }
         }
 
         public static void LogInfo(string message)
@@ -39,11 +31,31 @@ namespace HelideckVer2.Services
             {
                 lock (_lockObj)
                 {
+                    CheckRotate();
                     string infoMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [INFO] - {message}\n";
                     File.AppendAllText(_logFilePath, infoMessage);
                 }
             }
             catch { }
+        }
+
+        // Rotate log file when it exceeds 5 MB — preserves last 3 rotated files for incident investigation.
+        // Must be called under _lockObj.
+        private static void CheckRotate()
+        {
+            if (!File.Exists(_logFilePath)) return;
+            if (new FileInfo(_logFilePath).Length <= 5 * 1024 * 1024) return;
+            for (int i = 2; i >= 1; i--)
+            {
+                string older = _logFilePath + "." + (i + 1);
+                string newer = _logFilePath + "." + i;
+                if (File.Exists(newer))
+                {
+                    if (File.Exists(older)) File.Delete(older);
+                    File.Move(newer, older);
+                }
+            }
+            File.Move(_logFilePath, _logFilePath + ".1");
         }
     }
 }

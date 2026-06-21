@@ -47,14 +47,10 @@ namespace HelideckVer2
             new DeviceTask { TaskName = "METEO",   PortName = "COM5", BaudRate = 9600 }
         };
 
-        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
-        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            int dark = 1;
-            DwmSetWindowAttribute(this.Handle, 20, ref dark, sizeof(int));
+            Palette.ApplyTitleBarTheme(Handle);
         }
 
         public ConfigForm()
@@ -148,8 +144,18 @@ namespace HelideckVer2
             _btnNight.FlatAppearance.BorderSize = 1;
             _btnNight.Click += (s, e) => { _pendingIsLight = false; SystemConfig.IsLightTheme = false; UpdateThemeButtons(); };
 
+            // When DAY/NIGHT button changes the theme, update this form's controls and title bar
+            Action updateUI = () =>
+            {
+                if (!IsHandleCreated) return;
+                Palette.ApplyToForm(this);         // swap all control colors
+                Palette.ApplyTitleBarTheme(Handle); // sync title bar chrome
+            };
+            SystemConfig.ThemeChanged += updateUI;
+
             this.FormClosing += (s, e) =>
             {
+                SystemConfig.ThemeChanged -= updateUI; // prevent static-event memory leak
                 if (this.DialogResult != DialogResult.OK)
                     SystemConfig.IsLightTheme = _originalTheme;
             };

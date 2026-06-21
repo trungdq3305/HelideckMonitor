@@ -24,14 +24,15 @@ namespace HelideckVer2.Services.Parsing
         
         private const int NoiseTriggerCount = 5; // Số lần checksum lỗi liên tiếp để kích hoạt freeze
 
+        // Lock để ngăn race condition khi nhiều COM port gọi Parse() đồng thời từ ThreadPool threads
+        private readonly object _parseLock = new();
+
         // Đếm lỗi liên tiếp theo cổng
         private readonly Dictionary<string, int> _badCount = new();
 
-        // Cache giá trị tốt cuối cùng theo loại cảm biến
+        // Cache giá trị tốt cuối cùng — _lastHeading/_lastSpeed retained for external readers;
+        // _lastWind/_lastMotion/_lastPosition removed (were only used by stale-value re-emit, now removed)
         private double? _lastHeading;
-        private (double speed, double dir)? _lastWind;
-        private (double r, double p, double h)? _lastMotion;
-        private (string lat, string lon)? _lastPosition;
         private double? _lastSpeed;
 
         // Trạng thái nhiễu công khai (để badge trạng thái hiển thị)
@@ -80,6 +81,7 @@ namespace HelideckVer2.Services.Parsing
         // ── ENTRY POINT ───────────────────────────────────────────────────────
         public void Parse(string portName, string data)
         {
+            lock (_parseLock)  // COM ports fire DataReceived on ThreadPool — prevent concurrent Dictionary writes
             try
             {
                 // 1. KIỂM TRA TOÀN VẸN DỮ LIỆU
@@ -127,7 +129,8 @@ namespace HelideckVer2.Services.Parsing
                     if (double.TryParse(p[1], style, ci, out double wDir) &&
                         double.TryParse(p[3], style, ci, out double wSpeed))
                     {
-                        _lastWind = (wSpeed, wDir);
+                        // Plausibility: discard physically impossible sensor readings
+                        if (wSpeed < 0 || wSpeed > 100 || wDir < 0 || wDir > 360) return;
                         OnWindParsed?.Invoke(wSpeed, wDir);
                     }
                     return;
@@ -159,10 +162,7 @@ namespace HelideckVer2.Services.Parsing
                     }
 
                     if (ok)
-                    {
-                        _lastMotion = (r, pi, h);
                         OnMotionParsed?.Invoke(r, pi, h);
-                    }
                     return;
                 }
 
@@ -189,7 +189,6 @@ namespace HelideckVer2.Services.Parsing
                                             double.TryParse(p[heaveIdx], style, ci, out double hm))
                                            ? hm * 100.0                                       // SDI heave: m → cm
                                            : HeaveArm * Math.Sin(pitch * Math.PI / 180.0);    // fallback nếu không có SDI
-                            _lastMotion = (roll, pitch, heave);
                             OnMotionParsed?.Invoke(roll, pitch, heave);
                         }
                     }
@@ -204,7 +203,6 @@ namespace HelideckVer2.Services.Parsing
                         double.TryParse(p[3], style, ci, out double roll))
                     {
                         double heave = HeaveArm * Math.Sin(pitch * Math.PI / 180.0);
-                        _lastMotion = (roll, pitch, heave);
                         OnMotionParsed?.Invoke(roll, pitch, heave);
                     }
                     return;
@@ -225,7 +223,6 @@ namespace HelideckVer2.Services.Parsing
                         fLat = "NO FIX";
                         fLon = "NO FIX";
                     }
-                    _lastPosition = (fLat, fLon);
                     OnPositionParsed?.Invoke(fLat, fLon);
                     return;
                 }
@@ -255,19 +252,14 @@ namespace HelideckVer2.Services.Parsing
 
             if (_badCount[portName] < NoiseTriggerCount) return;
 
-            // Đánh dấu nhiễu và phát lại giá trị gần nhất (freeze)
+            // Mark port as noisy. Do NOT re-emit stale cached values — letting DataHub go stale
+            // after 2s gives operators an honest "LOST" badge instead of a misleading "OK" with
+            // frozen data. Re-emitting old values masked sensor failure from the operator.
             if (!_isNoisy.ContainsKey(portName) || !_isNoisy[portName])
             {
                 _isNoisy[portName] = true;
-                SystemLogger.LogInfo($"[NMEA] Port {portName} noisy ({_badCount[portName]} consecutive errors). Freezing last known values.");
+                SystemLogger.LogInfo($"[NMEA] Port {portName} noisy ({_badCount[portName]} consecutive errors). Sensor will show LOST after 2s.");
             }
-
-            // Phát lại để DataHub không đánh dấu stale ngay lập tức
-            if (_lastHeading.HasValue)   OnHeadingParsed?.Invoke(_lastHeading.Value);
-            if (_lastWind.HasValue)      OnWindParsed?.Invoke(_lastWind.Value.speed, _lastWind.Value.dir);
-            if (_lastMotion.HasValue)    OnMotionParsed?.Invoke(_lastMotion.Value.r, _lastMotion.Value.p, _lastMotion.Value.h);
-            if (_lastPosition.HasValue)  OnPositionParsed?.Invoke(_lastPosition.Value.lat, _lastPosition.Value.lon);
-            if (_lastSpeed.HasValue)     OnSpeedParsed?.Invoke(_lastSpeed.Value);
         }
 
     }

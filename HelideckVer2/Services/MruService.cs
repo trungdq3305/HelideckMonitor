@@ -57,6 +57,7 @@ namespace HelideckVer2.Services
         private double _pendingDt;
         private bool   _pendingUsingSampleFine;
 
+
         // Simulation
         private readonly Random _rng = new Random();
         private System.Timers.Timer _simTimer;
@@ -164,23 +165,25 @@ namespace HelideckVer2.Services
             bool portLoggedOnce = false;
             while (_running)
             {
-                SerialPort port = _comEngine?.GetManagedPort(_portName);
-                if (port == null || !port.IsOpen)
-                {
-                    portLoggedOnce    = false;
-                    _firstFrameLogged = false;
-                    Thread.Sleep(500);
-                    continue;
-                }
-
-                if (!portLoggedOnce)
-                {
-                    SystemLogger.LogInfo($"[MRU] Port {_portName} open — entering read loop.");
-                    portLoggedOnce = true;
-                }
-
+                // Declare port before the try block so catch handlers can call port?.Close()
+                SerialPort port = null;
                 try
                 {
+                    port = _comEngine?.GetManagedPort(_portName);
+                    if (port == null || !port.IsOpen)
+                    {
+                        portLoggedOnce    = false;
+                        _firstFrameLogged = false;
+                        Thread.Sleep(500);
+                        continue;
+                    }
+
+                    if (!portLoggedOnce)
+                    {
+                        SystemLogger.LogInfo($"[MRU] Port {_portName} open — entering read loop.");
+                        portLoggedOnce = true;
+                    }
+
                     ProcessPort(port);
                 }
                 catch (TimeoutException)
@@ -196,7 +199,7 @@ namespace HelideckVer2.Services
                     if (_timeoutFailCount % 5 == 0)
                     {
                         SystemLogger.LogInfo($"[MRU] {_portName}: {_timeoutFailCount} consecutive timeouts — closing port for RS-232 line reset.");
-                        try { port.Close(); } catch { }
+                        try { port?.Close(); } catch { }
                         Thread.Sleep(1000);
                     }
                     else
@@ -208,24 +211,33 @@ namespace HelideckVer2.Services
                 {
                     // USB/serial hardware disconnect: SerialPort.IsOpen may stay true even after disconnect.
                     // Explicitly close so ComEngine watchdog detects isClosed=true and reopens.
-                    try { port.Close(); } catch { }
+                    try { port?.Close(); } catch { }
                     _timeoutFailCount = 0;
                     SystemLogger.LogInfo($"[MRU] {_portName}: hardware error ({ex.GetType().Name}) — port closed, waiting for watchdog retry.");
                     Thread.Sleep(1000);
                 }
                 catch (Exception ex)
                 {
+                    // Safety net: catches anything outside ProcessPort (GetManagedPort, log calls, etc.)
+                    // Thread must never die silently — log and resume after delay.
                     _timeoutFailCount = 0;
-                    SystemLogger.LogInfo($"[MRU] ProcessPort exception on {_portName}: {ex.GetType().Name} — {ex.Message}");
-                    Thread.Sleep(200);
+                    SystemLogger.LogInfo($"[MRU] ReadLoop unexpected exception on {_portName}: {ex.GetType().Name} — {ex.Message}. Resuming after 500ms.");
+                    Thread.Sleep(500);
                 }
             }
             SystemLogger.LogInfo($"[MRU] ReadLoop exited.");
         }
 
-        private static void TrySend(SerialPort port, byte[] frame)
+        private void TrySend(SerialPort port, byte[] frame)
         {
-            try { port.Write(frame, 0, frame.Length); } catch { }
+            try
+            {
+                port.Write(frame, 0, frame.Length);
+            }
+            catch (Exception ex)
+            {
+                SystemLogger.LogInfo($"[MRU] TrySend failed on {_portName}: {ex.GetType().Name} — {ex.Message}");
+            }
         }
 
         private void InitDevice(SerialPort port)
@@ -307,6 +319,7 @@ namespace HelideckVer2.Services
         private void ProcessPort(SerialPort port)
         {
             InitDevice(port);
+            _processor.Reset();
 
             // Đồng bộ frame: tìm preamble FA
             while (_running)
@@ -456,7 +469,7 @@ namespace HelideckVer2.Services
             var out_ = _processor.UpdateEuler(
                 _roll, _pitch, _yaw,
                 freeAcc, rotBody,
-                dt);  // MTi RateOfTurn xuất rad/s
+                dt);
 
             if (!out_.Valid) return;
 
@@ -486,9 +499,8 @@ namespace HelideckVer2.Services
                 o.RollDeg,
                 o.PitchDeg,
                 o.HeaveInstantCg * 100.0);
-        }
 
-        // ── HELPERS ───────────────────────────────────────────────────────────
+        }
 
         // Log on 1st occurrence, 5th, then every 30 — avoids spam while keeping signal visible
         private static bool ShouldLogThrottled(int count) =>
@@ -497,12 +509,24 @@ namespace HelideckVer2.Services
         // Reads exactly `count` bytes into _frameBuffer (pre-allocated, zero GC allocation).
         private void ReadExact(SerialPort port, int count)
         {
-            int read = 0;
+            int read      = 0;
+            int zeroReads = 0;
             while (read < count && _running)
             {
                 int n = port.Read(_frameBuffer, read, count - read);
-                if (n > 0) read += n;
-                // n==0: rare on some RS-232 drivers — retry without sleeping
+                if (n > 0)
+                {
+                    read     += n;
+                    zeroReads = 0;
+                }
+                else
+                {
+                    // n==0: some RS-232/USB drivers return 0 instead of blocking.
+                    // After 50 consecutive zero-reads (~50ms) treat as a hardware stall.
+                    if (++zeroReads > 50)
+                        throw new TimeoutException($"[MRU] ReadExact: {zeroReads} consecutive zero-byte reads on {_portName} — hardware stall.");
+                    Thread.Sleep(1);
+                }
             }
         }
 
